@@ -1,0 +1,25 @@
+# Environment variables
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+venv/
+.venv/
+
+# IDE
+.vscode/
+
+# Local databases / generated data
+*.db
+*.sqlite
+*.sqlite3
+
+# Chroma local database
+chroma_db/
+
+# ML generated model/cache files
+__pycache__/
