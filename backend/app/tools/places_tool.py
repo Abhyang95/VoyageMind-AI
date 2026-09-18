@@ -1,3 +1,4 @@
+
 import time
 import requests
 
@@ -12,7 +13,7 @@ from app.tools.geoapify_places_tool import (
 
 
 # ============================================================
-# OVERPASS ENDPOINT
+# OVERPASS
 # ============================================================
 
 OVERPASS_ENDPOINT = (
@@ -33,49 +34,21 @@ HEADERS = {
 # ============================================================
 # PERFORMANCE
 # ============================================================
-#
-# IMPORTANT:
-#
-# Overpass is used as the primary source.
-# Geoapify is already a reliable fallback.
-#
-# Therefore we do NOT allow a slow Overpass request
-# to hold the entire Places Agent for 5+ seconds.
-#
-# Previous:
-#
-# CONNECT = 2s
-# READ    = 5s
-# SERVER  = 5s
-#
-# New:
-#
-# CONNECT = 1s
-# READ    = 2.5s
-# SERVER  = 2.5s
-#
-# This gives Overpass enough time to respond when healthy,
-# while allowing Geoapify fallback to start much earlier.
-# ============================================================
 
 OVERPASS_CONNECT_TIMEOUT = 1
 OVERPASS_READ_TIMEOUT = 2.5
-OVERPASS_SERVER_TIMEOUT = 2.5
-
+OVERPASS_SERVER_TIMEOUT = 3
 OVERPASS_RESULT_LIMIT = 100
 
 
 # ============================================================
-# MAX PLACES PER INTEREST
+# PLACE LIMITS
 # ============================================================
 
+# Maximum number collected from one interest source.
 MAX_PLACES_PER_INTEREST = 12
 
-
-# ============================================================
-# MINIMUM REQUIRED FOR SUCCESS
-# ============================================================
-
+# Minimum total places required for a successful result.
 MINIMUM_TOTAL_PLACES = 5
 
 
@@ -86,6 +59,23 @@ MINIMUM_TOTAL_PLACES = 5
 PLACES_CACHE = {}
 
 CACHE_DURATION = 300
+
+
+# ============================================================
+# OVERPASS RATE LIMIT PROTECTION
+# ============================================================
+
+# Public Overpass instances can return HTTP 429 when the
+# request quota for the current IP is exceeded.
+#
+# We keep a cooldown mechanism, but do NOT serialize all
+# requests with a global lock. The existing ThreadPoolExecutor
+# can therefore continue processing selected interests
+# concurrently.
+OVERPASS_COOLDOWN_UNTIL = 0
+
+# Official Overpass guidance recommends pausing after 429.
+OVERPASS_429_COOLDOWN = 30
 
 
 # ============================================================
@@ -206,7 +196,7 @@ def normalize_interests(interests):
 
 
 # ============================================================
-# BUILD ONE COMBINED OVERPASS QUERY
+# BUILD OVERPASS QUERY
 # ============================================================
 
 def build_combined_overpass_query(
@@ -263,7 +253,40 @@ out center {OVERPASS_RESULT_LIMIT};
 
 def fetch_overpass_query(query):
 
+    global OVERPASS_COOLDOWN_UNTIL
+
     start_time = time.perf_counter()
+
+    # ========================================================
+    # RATE-LIMIT COOLDOWN CHECK
+    # ========================================================
+
+    if time.time() < OVERPASS_COOLDOWN_UNTIL:
+
+        remaining = (
+            OVERPASS_COOLDOWN_UNTIL
+            - time.time()
+        )
+
+        print(
+            f"      ⏸️ Overpass cooldown active "
+            f"({remaining:.0f}s remaining)"
+        )
+
+        return None
+
+    # ========================================================
+    # OVERPASS REQUEST
+    #
+    # IMPORTANT:
+    # No global lock here.
+    #
+    # The Places Agent already uses ThreadPoolExecutor to
+    # process different interests concurrently.
+    #
+    # If Overpass returns 429, the cooldown below prevents
+    # subsequent requests from immediately hammering it.
+    # ========================================================
 
     try:
 
@@ -276,11 +299,46 @@ def fetch_overpass_query(query):
             headers=HEADERS,
 
             timeout=(
+
                 OVERPASS_CONNECT_TIMEOUT,
+
                 OVERPASS_READ_TIMEOUT,
+
             ),
 
         )
+
+        # =====================================================
+        # EXPLICIT 429 HANDLING
+        # =====================================================
+
+        if response.status_code == 429:
+
+            OVERPASS_COOLDOWN_UNTIL = (
+                time.time()
+                + OVERPASS_429_COOLDOWN
+            )
+
+            elapsed = (
+                time.perf_counter()
+                - start_time
+            )
+
+            print(
+                f"      🚦 Overpass rate limited "
+                f"(429) after {elapsed:.2f}s"
+            )
+
+            print(
+                f"      ⏸️ Overpass paused for "
+                f"{OVERPASS_429_COOLDOWN}s"
+            )
+
+            return None
+
+        # =====================================================
+        # NORMAL RESPONSE HANDLING
+        # =====================================================
 
         response.raise_for_status()
 
@@ -306,7 +364,7 @@ def fetch_overpass_query(query):
         )
 
         print(
-            f"      ⏱️ Overpass fast timeout "
+            f"      ⏱️ Overpass timeout "
             f"({elapsed:.2f}s)"
         )
 
@@ -320,7 +378,7 @@ def fetch_overpass_query(query):
         )
 
         print(
-            f"      ❌ Overpass request failed "
+            f"      ❌ Overpass failed "
             f"({elapsed:.2f}s)"
         )
 
@@ -376,7 +434,6 @@ def parse_place(
     if not name:
         return None
 
-
     # ========================================================
     # COORDINATES
     # ========================================================
@@ -414,7 +471,6 @@ def parse_place(
 
         return None
 
-
     # ========================================================
     # CATEGORY
     # ========================================================
@@ -429,7 +485,6 @@ def parse_place(
         or tags.get("man_made")
         or "place"
     )
-
 
     # ========================================================
     # ADDRESS
@@ -477,7 +532,6 @@ def parse_place(
         address_parts
     )
 
-
     # ========================================================
     # INTEREST
     # ========================================================
@@ -488,7 +542,6 @@ def parse_place(
             interest.title(),
         )
     )
-
 
     # ========================================================
     # RETURN
@@ -589,7 +642,7 @@ def get_place_unique_key(place):
 
 
 # ============================================================
-# SEARCH ONE INTEREST WITH OVERPASS
+# SEARCH ONE INTEREST — OVERPASS
 # ============================================================
 
 def search_interest_places(
@@ -621,6 +674,7 @@ def search_interest_places(
     )
 
     if not query:
+
         return []
 
     data = fetch_overpass_query(
@@ -628,6 +682,7 @@ def search_interest_places(
     )
 
     if not data:
+
         return []
 
     elements = data.get(
@@ -647,6 +702,7 @@ def search_interest_places(
         )
 
         if not place:
+
             continue
 
         unique_key = (
@@ -656,6 +712,7 @@ def search_interest_places(
         )
 
         if unique_key in seen:
+
             continue
 
         seen.add(
@@ -670,6 +727,7 @@ def search_interest_places(
             len(places)
             >= MAX_PLACES_PER_INTEREST
         ):
+
             break
 
     elapsed = (
@@ -705,40 +763,19 @@ def search_interest_with_fallback(
     )
 
     # ========================================================
-    # FIRST: OVERPASS
-    # ========================================================
-
-    places = search_interest_places(
-        latitude=latitude,
-        longitude=longitude,
-        interest=interest,
-        radius=radius,
-    )
-
-    if places:
-
-        return {
-
-            "interest": interest,
-
-            "places": places,
-
-            "source": "Overpass",
-
-        }
-
-
-    # ========================================================
-    # FALLBACK
+    # FIRST — GEOAPIFY
+    #
+    # Geoapify is now the PRIMARY provider.
+    #
+    # IMPORTANT:
+    # If Geoapify already returns 12 places, Overpass is
+    # NOT called.
     # ========================================================
 
     print(
-        f"   ⚡ {display_name}: "
-        f"Overpass failed → "
-        f"Geoapify fallback"
+        f"   🟣 Geoapify → "
+        f"{display_name} (PRIMARY)"
     )
-
-    start_time = time.perf_counter()
 
     try:
 
@@ -768,49 +805,187 @@ def search_interest_with_fallback(
             f"{str(error)}"
         )
 
-        return {
-
-            "interest": interest,
-
+        geoapify_result = {
+            "success": False,
             "places": [],
-
-            "source": "failed",
-
         }
 
-    fallback_places = []
+    geoapify_places = []
 
     if isinstance(
         geoapify_result,
         dict,
     ):
 
-        fallback_places = (
+        geoapify_places = (
             geoapify_result.get(
                 "places",
                 [],
             )
         )
 
-    elapsed = (
-        time.perf_counter()
-        - start_time
+    # ========================================================
+    # GEOAPIFY SUCCESS
+    #
+    # If enough places are available, return immediately.
+    # This is the key performance improvement.
+    # ========================================================
+
+    if (
+        len(geoapify_places)
+        >= MAX_PLACES_PER_INTEREST
+    ):
+
+        print(
+            f"   ✅ {display_name}: "
+            f"Geoapify provided "
+            f"{len(geoapify_places)} places "
+            f"→ Overpass not needed"
+        )
+
+        return {
+
+            "interest":
+                interest,
+
+            "places":
+                geoapify_places[
+                    :MAX_PLACES_PER_INTEREST
+                ],
+
+            "source":
+                "Geoapify",
+
+        }
+
+    # ========================================================
+    # GEOAPIFY INSUFFICIENT
+    #
+    # Only now do we use Overpass as the fallback/top-up
+    # provider.
+    # ========================================================
+
+    print(
+        f"   ⚡ {display_name}: "
+        f"Geoapify returned "
+        f"{len(geoapify_places)} "
+        f"→ Overpass fallback/top-up"
     )
+
+    overpass_places = search_interest_places(
+
+        latitude=latitude,
+
+        longitude=longitude,
+
+        interest=interest,
+
+        radius=radius,
+
+    )
+
+    # ========================================================
+    # MERGE GEOAPIFY + OVERPASS
+    #
+    # Geoapify results remain first because it is the primary
+    # provider.
+    #
+    # Duplicates are removed using the existing unique key.
+    #
+    # Maximum remains 12.
+    # ========================================================
+
+    merged_places = []
+
+    seen = set()
+
+    for place in (
+        geoapify_places
+        + overpass_places
+    ):
+
+        if not isinstance(
+            place,
+            dict,
+        ):
+
+            continue
+
+        unique_key = (
+            get_place_unique_key(
+                place
+            )
+        )
+
+        if unique_key in seen:
+
+            continue
+
+        seen.add(
+            unique_key
+        )
+
+        # Make sure fallback places also carry the
+        # selected interest.
+
+        interest_name = (
+            INTEREST_DISPLAY_NAMES.get(
+                interest,
+                interest.title(),
+            )
+        )
+
+        add_interest_tag(
+            place,
+            interest_name,
+        )
+
+        merged_places.append(
+            place
+        )
+
+        if (
+            len(merged_places)
+            >= MAX_PLACES_PER_INTEREST
+        ):
+
+            break
 
     print(
         f"   🟣 {display_name}: "
-        f"{len(fallback_places)} "
-        f"Geoapify places "
-        f"({elapsed:.2f}s)"
+        f"{len(merged_places)} final places"
     )
+
+    # ========================================================
+    # SOURCE
+    # ========================================================
+
+    source = "Geoapify"
+
+    if (
+        not geoapify_places
+        and overpass_places
+    ):
+
+        source = "Overpass"
+
+    elif (
+        geoapify_places
+        and overpass_places
+    ):
+
+        source = "Geoapify+Overpass"
 
     return {
 
-        "interest": interest,
+        "interest":
+            interest,
 
-        "places": fallback_places,
+        "places":
+            merged_places,
 
-        "source": "Geoapify",
+        "source":
+            source,
 
     }
 
@@ -824,6 +999,13 @@ def add_interest_tag(
     interest_name,
 ):
 
+    if not isinstance(
+        place,
+        dict,
+    ):
+
+        return place
+
     tags = place.get(
         "interest_tags",
         [],
@@ -833,6 +1015,7 @@ def add_interest_tag(
         tags,
         list,
     ):
+
         tags = []
 
     normalized_tags = []
@@ -840,6 +1023,7 @@ def add_interest_tag(
     for tag in tags:
 
         if not tag:
+
             continue
 
         clean_tag = str(
@@ -848,15 +1032,18 @@ def add_interest_tag(
 
         if (
             clean_tag
-            and clean_tag not in normalized_tags
+            and clean_tag
+            not in normalized_tags
         ):
+
             normalized_tags.append(
                 clean_tag
             )
 
     if (
         interest_name
-        and interest_name not in normalized_tags
+        and interest_name
+        not in normalized_tags
     ):
 
         normalized_tags.append(
@@ -867,7 +1054,9 @@ def add_interest_tag(
         normalized_tags
     )
 
-    if not place.get("interest"):
+    if not place.get(
+        "interest"
+    ):
 
         place["interest"] = (
             interest_name
@@ -911,7 +1100,6 @@ def get_places(
         f"{latitude}, {longitude}"
     )
 
-
     # ========================================================
     # NORMALIZE INTERESTS
     # ========================================================
@@ -935,14 +1123,24 @@ def get_places(
         ]
 
     print(
-        f"🎯 Interests: "
-        f"{normalized_interests}"
+        f"🎯 Selected interests "
+        f"({len(normalized_interests)}):"
     )
 
+    for index, interest in enumerate(
+        normalized_interests,
+        start=1,
+    ):
+
+        print(
+            f"   {index}. "
+            f"{INTEREST_DISPLAY_NAMES.get(interest, interest.title())}"
+        )
+
+    print()
     print(
-        "⚡ Searching interests in parallel..."
+        "⚡ Searching ALL selected interests in parallel..."
     )
-
 
     # ========================================================
     # CACHE
@@ -999,7 +1197,6 @@ def get_places(
             cache_key
         ]
 
-
     # ========================================================
     # PARALLEL SEARCH
     # ========================================================
@@ -1007,8 +1204,11 @@ def get_places(
     all_results = []
 
     max_workers = min(
-        5,
-        len(normalized_interests),
+        8,
+        max(
+            1,
+            len(normalized_interests)
+        ),
     )
 
     parallel_start = (
@@ -1080,7 +1280,6 @@ def get_places(
                 result
             )
 
-
     parallel_elapsed = (
         time.perf_counter()
         - parallel_start
@@ -1092,14 +1291,9 @@ def get_places(
         f"in {parallel_elapsed:.2f}s"
     )
 
-
     # ========================================================
-    # MERGE RESULTS
+    # RESULT MAP
     # ========================================================
-
-    all_places = []
-
-    place_index = {}
 
     result_map = {
 
@@ -1109,7 +1303,6 @@ def get_places(
         for result in all_results
 
     }
-
 
     # ========================================================
     # RAW DISTRIBUTION
@@ -1143,10 +1336,24 @@ def get_places(
             display_name
         ] = len(places)
 
-
     # ========================================================
     # MERGE PHYSICAL PLACES
+    #
+    # SAME PLACE can belong to MULTIPLE interests.
+    #
+    # Example:
+    #
+    # Louvre
+    # → Architecture
+    # → History
+    # → Museums
+    #
+    # It remains ONE physical place.
     # ========================================================
+
+    all_places = []
+
+    place_index = {}
 
     for interest in normalized_interests:
 
@@ -1171,6 +1378,13 @@ def get_places(
 
         for place in places:
 
+            if not isinstance(
+                place,
+                dict,
+            ):
+
+                continue
+
             unique_key = (
                 get_place_unique_key(
                     place
@@ -1179,7 +1393,6 @@ def get_places(
 
             if not unique_key:
                 continue
-
 
             # ------------------------------------------------
             # EXISTING PHYSICAL PLACE
@@ -1206,7 +1419,6 @@ def get_places(
 
                 continue
 
-
             # ------------------------------------------------
             # NEW PHYSICAL PLACE
             # ------------------------------------------------
@@ -1230,7 +1442,6 @@ def get_places(
                 clean_place
             )
 
-
     # ========================================================
     # FINAL DISTRIBUTION
     # ========================================================
@@ -1249,7 +1460,6 @@ def get_places(
         final_distribution[
             display_name
         ] = 0
-
 
     # ========================================================
     # COUNT INTEREST TAGS
@@ -1277,6 +1487,211 @@ def get_places(
                     tag
                 ] += 1
 
+    # ========================================================
+    # INTEREST COVERAGE REPAIR
+    #
+    # If an interest somehow ended up with ZERO places
+    # after the merge, try one additional Geoapify request.
+    #
+    # This protects against an interest disappearing from
+    # the final result.
+    # ========================================================
+
+    missing_interests = []
+
+    for interest in normalized_interests:
+
+        display_name = (
+            INTEREST_DISPLAY_NAMES.get(
+                interest,
+                interest.title(),
+            )
+        )
+
+        if (
+            final_distribution.get(
+                display_name,
+                0,
+            )
+            == 0
+        ):
+
+            missing_interests.append(
+                interest
+            )
+
+    if missing_interests:
+
+        print()
+        print(
+            "🛠️ INTEREST COVERAGE REPAIR"
+        )
+
+        for interest in missing_interests:
+
+            display_name = (
+                INTEREST_DISPLAY_NAMES.get(
+                    interest,
+                    interest.title(),
+                )
+            )
+
+            print(
+                f"   🔧 Repairing "
+                f"{display_name}"
+            )
+
+            try:
+
+                repair_result = (
+                    get_geoapify_places(
+
+                        latitude=latitude,
+
+                        longitude=longitude,
+
+                        interests=[
+                            interest
+                        ],
+
+                        radius=max(
+                            radius,
+                            5000,
+                        ),
+
+                        limit=MAX_PLACES_PER_INTEREST,
+
+                    )
+                )
+
+            except Exception as error:
+
+                print(
+                    f"   ❌ Repair failed "
+                    f"for {display_name}: "
+                    f"{str(error)}"
+                )
+
+                continue
+
+            repair_places = []
+
+            if isinstance(
+                repair_result,
+                dict,
+            ):
+
+                repair_places = (
+                    repair_result.get(
+                        "places",
+                        [],
+                    )
+                )
+
+            added = 0
+
+            for place in repair_places:
+
+                if not isinstance(
+                    place,
+                    dict,
+                ):
+
+                    continue
+
+                unique_key = (
+                    get_place_unique_key(
+                        place
+                    )
+                )
+
+                if unique_key in place_index:
+
+                    existing_index = (
+                        place_index[
+                            unique_key
+                        ]
+                    )
+
+                    existing_place = (
+                        all_places[
+                            existing_index
+                        ]
+                    )
+
+                    add_interest_tag(
+                        existing_place,
+                        display_name,
+                    )
+
+                    added += 1
+
+                    continue
+
+                clean_place = dict(
+                    place
+                )
+
+                add_interest_tag(
+                    clean_place,
+                    display_name,
+                )
+
+                place_index[
+                    unique_key
+                ] = len(
+                    all_places
+                )
+
+                all_places.append(
+                    clean_place
+                )
+
+                added += 1
+
+                if added >= MAX_PLACES_PER_INTEREST:
+
+                    break
+
+            print(
+                f"   🔧 {display_name}: "
+                f"added {added} repair places"
+            )
+
+        # Recalculate final distribution after repair.
+
+        final_distribution = {
+
+            INTEREST_DISPLAY_NAMES.get(
+                interest,
+                interest.title(),
+            ): 0
+
+            for interest in normalized_interests
+
+        }
+
+        for place in all_places:
+
+            tags = place.get(
+                "interest_tags",
+                [],
+            )
+
+            if not isinstance(
+                tags,
+                list,
+            ):
+
+                tags = []
+
+            for tag in tags:
+
+                if tag in final_distribution:
+
+                    final_distribution[
+                        tag
+                    ] += 1
 
     # ========================================================
     # TOTAL TIME
@@ -1287,9 +1702,8 @@ def get_places(
         - total_start_time
     )
 
-
     # ========================================================
-    # LOG
+    # FINAL LOG
     # ========================================================
 
     print()
@@ -1301,7 +1715,29 @@ def get_places(
 
     print()
     print(
-        "📊 Raw search results:"
+        "🎯 SELECTED INTERESTS:"
+    )
+
+    for index, interest in enumerate(
+        normalized_interests,
+        start=1,
+    ):
+
+        display_name = (
+            INTEREST_DISPLAY_NAMES.get(
+                interest,
+                interest.title(),
+            )
+        )
+
+        print(
+            f"   {index}. "
+            f"{display_name}"
+        )
+
+    print()
+    print(
+        "📊 RAW SEARCH RESULTS:"
     )
 
     for (
@@ -1316,7 +1752,7 @@ def get_places(
 
     print()
     print(
-        "📊 Interest coverage after merge:"
+        "📊 FINAL INTEREST COVERAGE:"
     )
 
     for (
@@ -1324,14 +1760,27 @@ def get_places(
         count
     ) in final_distribution.items():
 
+        status = (
+            "✅"
+            if count > 0
+            else "❌"
+        )
+
         print(
-            f"   {category}: "
+            f"   {status} "
+            f"{category}: "
             f"{count}"
         )
 
+    print()
     print(
         f"📍 Unique physical places: "
         f"{len(all_places)}"
+    )
+
+    print(
+        f"🎯 Selected interests: "
+        f"{len(normalized_interests)}"
     )
 
     print(
@@ -1339,6 +1788,32 @@ def get_places(
         f"{total_elapsed:.2f}s"
     )
 
+    # ========================================================
+    # FINAL COVERAGE CHECK
+    # ========================================================
+
+    uncovered_interests = []
+
+    for interest in normalized_interests:
+
+        display_name = (
+            INTEREST_DISPLAY_NAMES.get(
+                interest,
+                interest.title(),
+            )
+        )
+
+        if (
+            final_distribution.get(
+                display_name,
+                0,
+            )
+            == 0
+        ):
+
+            uncovered_interests.append(
+                display_name
+            )
 
     # ========================================================
     # SUCCESS
@@ -1369,11 +1844,20 @@ def get_places(
             "interests":
                 normalized_interests,
 
+            "selected_interest_count":
+                len(normalized_interests),
+
+            "covered_interest_count":
+                len(normalized_interests)
+                - len(uncovered_interests),
+
+            "uncovered_interests":
+                uncovered_interests,
+
             "source":
                 "overpass+geoapify",
 
         }
-
 
         # ====================================================
         # CACHE
@@ -1392,18 +1876,43 @@ def get_places(
         }
 
         print()
+
+        if uncovered_interests:
+
+            print(
+                "⚠️ Some selected interests "
+                "have no verified places:"
+            )
+
+            for interest in (
+                uncovered_interests
+            ):
+
+                print(
+                    f"   ⚠️ {interest}"
+                )
+
+        else:
+
+            print(
+                "✅ ALL SELECTED INTERESTS "
+                "ARE COVERED."
+            )
+
+        print()
+
         print(
             "✅ Places Agent completed."
         )
 
         return result
 
-
     # ========================================================
     # FAILURE
     # ========================================================
 
     print()
+
     print(
         "❌ Not enough verified places found."
     )
@@ -1428,6 +1937,16 @@ def get_places(
         "interests":
             normalized_interests,
 
+        "selected_interest_count":
+            len(normalized_interests),
+
+        "covered_interest_count":
+            len(normalized_interests)
+            - len(uncovered_interests),
+
+        "uncovered_interests":
+            uncovered_interests,
+
         "error":
             (
                 "Unable to find enough "
@@ -1435,3 +1954,4 @@ def get_places(
             ),
 
     }
+

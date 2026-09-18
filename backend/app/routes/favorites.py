@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
 from app.database import get_db
-from app.models import Favorite, User
+from app.models import Favorite, Trip, User
 
 
 router = APIRouter(
@@ -13,17 +13,82 @@ router = APIRouter(
 )
 
 
-# ---------------------------------------------------------
-# REQUEST SCHEMA
-# ---------------------------------------------------------
-
 class FavoriteRequest(BaseModel):
     destination: str
 
 
-# ---------------------------------------------------------
+def normalize_destination(value):
+    return str(value or "").strip().lower()
+
+
+def favorite_to_dict(favorite, trip=None):
+    return {
+        "id": favorite.id,
+        "destination": favorite.destination,
+        "created_at": favorite.created_at,
+
+        # NEW:
+        # Frontend can use this to open the actual saved journey.
+        "trip_id": trip.id if trip else None,
+        "trip": (
+            {
+                "id": trip.id,
+                "destination": trip.destination,
+                "departure_date": trip.departure_date,
+                "return_date": trip.return_date,
+                "days": trip.days,
+                "budget": trip.budget,
+                "currency": trip.currency,
+                "interests": (
+                    trip.interests
+                    if isinstance(trip.interests, list)
+                    else trip.interests
+                ),
+                "itinerary": trip.itinerary,
+                "created_at": trip.created_at,
+            }
+            if trip
+            else None
+        ),
+    }
+
+
+def dedupe_favorites(
+    db: Session,
+    user_id: int,
+):
+    favorites = (
+        db.query(Favorite)
+        .filter(Favorite.user_id == user_id)
+        .order_by(Favorite.created_at.desc())
+        .all()
+    )
+
+    seen = {}
+    duplicates = []
+
+    for favorite in favorites:
+        key = normalize_destination(
+            favorite.destination
+        )
+
+        if key in seen:
+            duplicates.append(favorite)
+        else:
+            seen[key] = favorite
+
+    for duplicate in duplicates:
+        db.delete(duplicate)
+
+    if duplicates:
+        db.commit()
+
+    return list(seen.values())
+
+
+# ============================================================
 # ADD FAVORITE
-# ---------------------------------------------------------
+# ============================================================
 
 @router.post("/")
 def add_favorite(
@@ -31,20 +96,44 @@ def add_favorite(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    existing_favorite = (
-        db.query(Favorite)
-        .filter(
-            Favorite.user_id == current_user.id,
-            Favorite.destination == request.destination,
-        )
-        .first()
+    favorites = dedupe_favorites(
+        db,
+        current_user.id,
     )
 
-    if existing_favorite:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Destination is already in favorites.",
-        )
+    destination_key = normalize_destination(
+        request.destination
+    )
+
+    # Idempotent favorite.
+    for favorite in favorites:
+        if (
+            normalize_destination(
+                favorite.destination
+            )
+            == destination_key
+        ):
+            trip = (
+                db.query(Trip)
+                .filter(
+                    Trip.user_id == current_user.id,
+                    Trip.destination.ilike(
+                        favorite.destination
+                    ),
+                )
+                .order_by(Trip.created_at.desc())
+                .first()
+            )
+
+            return {
+                "success": True,
+                "message": "Already favorited.",
+                "created": False,
+                "favorite": favorite_to_dict(
+                    favorite,
+                    trip,
+                ),
+            }
 
     favorite = Favorite(
         user_id=current_user.id,
@@ -55,53 +144,79 @@ def add_favorite(
     db.commit()
     db.refresh(favorite)
 
+    trip = (
+        db.query(Trip)
+        .filter(
+            Trip.user_id == current_user.id,
+            Trip.destination.ilike(
+                request.destination
+            ),
+        )
+        .order_by(Trip.created_at.desc())
+        .first()
+    )
+
     return {
         "success": True,
-        "message": "Destination added to favorites.",
-        "favorite": {
-            "id": favorite.id,
-            "destination": favorite.destination,
-            "created_at": favorite.created_at,
-        },
+        "message": "Added to favorites.",
+        "created": True,
+        "favorite": favorite_to_dict(
+            favorite,
+            trip,
+        ),
     }
 
 
-# ---------------------------------------------------------
-# GET ALL FAVORITES
-# ---------------------------------------------------------
+# ============================================================
+# GET FAVORITES
+# ============================================================
 
 @router.get("/")
 def get_favorites(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    favorites = (
-        db.query(Favorite)
-        .filter(Favorite.user_id == current_user.id)
-        .order_by(Favorite.created_at.desc())
-        .all()
+    favorites = dedupe_favorites(
+        db,
+        current_user.id,
     )
+
+    result = []
+
+    for favorite in favorites:
+        # Match favorite → newest saved journey.
+        trip = (
+            db.query(Trip)
+            .filter(
+                Trip.user_id == current_user.id,
+                Trip.destination.ilike(
+                    favorite.destination
+                ),
+            )
+            .order_by(Trip.created_at.desc())
+            .first()
+        )
+
+        result.append(
+            favorite_to_dict(
+                favorite,
+                trip,
+            )
+        )
 
     return {
         "success": True,
-        "count": len(favorites),
-        "favorites": [
-            {
-                "id": favorite.id,
-                "destination": favorite.destination,
-                "created_at": favorite.created_at,
-            }
-            for favorite in favorites
-        ],
+        "count": len(result),
+        "favorites": result,
     }
 
 
-# ---------------------------------------------------------
-# REMOVE FAVORITE
-# ---------------------------------------------------------
+# ============================================================
+# DELETE FAVORITE
+# ============================================================
 
 @router.delete("/{favorite_id}")
-def remove_favorite(
+def delete_favorite(
     favorite_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -126,5 +241,5 @@ def remove_favorite(
 
     return {
         "success": True,
-        "message": "Favorite removed successfully.",
+        "message": "Removed from favorites.",
     }

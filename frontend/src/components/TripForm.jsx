@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+
 import API from "../services/api";
 import "./TripForm.css";
 import heroImage from "../assets/hero.png";
@@ -7,7 +13,7 @@ const INTERESTS = [
   {
     id: "architecture",
     label: "Architecture",
-    icon: "🏛️",
+    icon: "🕌",
   },
   {
     id: "history",
@@ -22,12 +28,12 @@ const INTERESTS = [
   {
     id: "nightlife",
     label: "Nightlife",
-    icon: "🌙",
+    icon: "🌃",
   },
   {
     id: "museums",
     label: "Museums",
-    icon: "🖼️",
+    icon: "🏛️",
   },
   {
     id: "nature",
@@ -37,7 +43,7 @@ const INTERESTS = [
   {
     id: "shopping",
     label: "Shopping",
-    icon: "🛍️",
+    icon: "🛒",
   },
   {
     id: "adventure",
@@ -45,18 +51,6 @@ const INTERESTS = [
     icon: "🏄",
   },
 ];
-
-const CURRENCY_SYMBOLS = {
-  INR: "₹",
-  USD: "$",
-  EUR: "€",
-  GBP: "£",
-  JPY: "¥",
-  AED: "د.إ",
-  SGD: "S$",
-  CAD: "C$",
-  AUD: "A$",
-};
 
 const CURRENCY_OPTIONS = [
   {
@@ -131,23 +125,35 @@ const formatCurrency = (
     ).toLocaleString()}`;
   }
 };
+
 /* -------------------------------------------------------
    DATE HELPERS
 ------------------------------------------------------- */
 
-const calculateTripDays = (departureDate, returnDate) => {
+const calculateTripDays = (
+  departureDate,
+  returnDate
+) => {
   if (!departureDate || !returnDate) {
     return 0;
   }
 
-  const departure = new Date(`${departureDate}T00:00:00`);
-  const returnDay = new Date(`${returnDate}T00:00:00`);
+  const departure = new Date(
+    `${departureDate}T00:00:00`
+  );
 
-  const difference = returnDay - departure;
+  const returnDay = new Date(
+    `${returnDate}T00:00:00`
+  );
+
+  const difference =
+    returnDay - departure;
 
   return Math.max(
     0,
-    Math.round(difference / 86400000)
+    Math.round(
+      difference / 86400000
+    )
   );
 };
 
@@ -156,12 +162,17 @@ const formatDatePreview = (date) => {
     return "Select a date";
   }
 
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(`${date}T00:00:00`));
+  return new Intl.DateTimeFormat(
+    "en-US",
+    {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }
+  ).format(
+    new Date(`${date}T00:00:00`)
+  );
 };
 
 /* -------------------------------------------------------
@@ -172,61 +183,137 @@ const TripForm = ({
   onTripGenerated,
   hasPlannedTrip,
   onViewPlannedTrip,
+  user,
+  authLoading,
+  onOpenAuth,
+  onLogout,
+  onOpenMyTrips,
+  onOpenFavorites,
 }) => {
   const plannerRef = useRef(null);
-  const currencyDropdownRef = useRef(null);
+  const currencyDropdownRef =
+    useRef(null);
+  const accountMenuRef =
+    useRef(null);
 
-  const [currencyDropdownOpen, setCurrencyDropdownOpen] =
-  useState(false);
-  const [departureDate, setDepartureDate] = useState("");
-  const [returnDate, setReturnDate] = useState("");
+  /*
+   * HARD SUBMIT LOCK
+   *
+   * Prevents multiple /plan-trip requests when
+   * the user clicks CREATE MY JOURNEY repeatedly
+   * before React has updated loading state.
+   */
+  const submitLockRef = useRef(false);
 
-  const [formData, setFormData] = useState({
-    destination: "",
-    days: 0,
-    budget: "",
-    currency: "INR",
-    interests: [],
-    restaurant_budget: "moderate",
-    walking_preference: true,
-    hotel_preference: "mid-range",
-  });
+  /*
+   * Recommendation request lock.
+   *
+   * Prevents multiple recommendation requests
+   * from rapid clicks.
+   */
+  const recommendationLockRef =
+    useRef(false);
 
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [
+    currencyDropdownOpen,
+    setCurrencyDropdownOpen,
+  ] = useState(false);
+
+  const [
+    departureDate,
+    setDepartureDate,
+  ] = useState("");
+
+  const [
+    returnDate,
+    setReturnDate,
+  ] = useState("");
+
+  const [formData, setFormData] =
+    useState({
+      destination: "",
+      days: 0,
+      budget: "",
+      currency: "INR",
+      restaurant_budget:
+        "moderate",
+      walking_preference: true,
+      hotel_preference:
+        "mid-range",
+    });
+
+  /*
+   * Interests are intentionally kept separate
+   * from formData.
+   */
+  const [
+    selectedInterests,
+    setSelectedInterests,
+  ] = useState(
+    INTERESTS.map(
+      (interest) => interest.id
+    ).filter(() => false)
+  );
+
+  const [error, setError] =
+    useState("");
+
+  const [loading, setLoading] =
+    useState(false);
 
   /* -------------------------------------------------------
      DAY 9 — ML RECOMMENDATIONS
   ------------------------------------------------------- */
 
-  const [recommendations, setRecommendations] = useState([]);
+  const [
+    recommendations,
+    setRecommendations,
+  ] = useState([]);
 
-  const [recommendationLoading, setRecommendationLoading] =
-    useState(false);
+  const [
+    recommendationLoading,
+    setRecommendationLoading,
+  ] = useState(false);
 
-  const [recommendationError, setRecommendationError] =
-    useState("");
+  const [
+    recommendationError,
+    setRecommendationError,
+  ] = useState("");
+
+  const [
+    accountMenuOpen,
+    setAccountMenuOpen,
+  ] = useState(false);
 
   const selectedCurrency =
     CURRENCY_OPTIONS.find(
-      (currency) => currency.code === formData.currency
-    ) || CURRENCY_OPTIONS[0];
+      (currency) =>
+        currency.code ===
+        formData.currency
+    ) ||
+    CURRENCY_OPTIONS[0];
 
   /* -------------------------------------------------------
      ALWAYS START PAGE AT TOP
   ------------------------------------------------------- */
 
   useLayoutEffect(() => {
-    const html = document.documentElement;
+    const html =
+      document.documentElement;
 
     const previousScrollBehavior =
       html.style.scrollBehavior;
 
-    if ("scrollRestoration" in window.history) {
-      window.history.scrollRestoration = "manual";
+    if (
+      "scrollRestoration" in
+      window.history
+    ) {
+      window.history.scrollRestoration =
+        "manual";
     }
 
-    html.style.scrollBehavior = "auto";
+    html.style.scrollBehavior =
+      "auto";
 
     const forceTop = () => {
       window.scrollTo(0, 0);
@@ -234,11 +321,19 @@ const TripForm = ({
 
     forceTop();
 
-    const frame = requestAnimationFrame(forceTop);
+    const frame =
+      requestAnimationFrame(
+        forceTop
+      );
 
-    const timeout1 = setTimeout(forceTop, 50);
-    const timeout2 = setTimeout(forceTop, 150);
-    const timeout3 = setTimeout(forceTop, 400);
+    const timeout1 =
+      setTimeout(forceTop, 50);
+
+    const timeout2 =
+      setTimeout(forceTop, 150);
+
+    const timeout3 =
+      setTimeout(forceTop, 400);
 
     const handlePageShow = () => {
       forceTop();
@@ -264,64 +359,169 @@ const TripForm = ({
       html.style.scrollBehavior =
         previousScrollBehavior;
 
-      if ("scrollRestoration" in window.history) {
-        window.history.scrollRestoration = "auto";
+      if (
+        "scrollRestoration" in
+        window.history
+      ) {
+        window.history.scrollRestoration =
+          "auto";
       }
     };
   }, []);
+
+  /* -------------------------------------------------------
+     CURRENCY DROPDOWN
+  ------------------------------------------------------- */
 
   useEffect(() => {
-    const handleClickOutside = (event) => {
+    const handleClickOutside = (
+      event
+    ) => {
       if (
         currencyDropdownRef.current &&
-        !currencyDropdownRef.current.contains(event.target)
+        !currencyDropdownRef.current.contains(
+          event.target
+        )
       ) {
-        setCurrencyDropdownOpen(false);
+        setCurrencyDropdownOpen(
+          false
+        );
       }
     };
 
-    const handleKeyDown = (event) => {
+    const handleKeyDown = (
+      event
+    ) => {
       if (event.key === "Escape") {
-        setCurrencyDropdownOpen(false);
+        setCurrencyDropdownOpen(
+          false
+        );
       }
     };
 
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener(
+      "mousedown",
+      handleClickOutside
+    );
+
+    document.addEventListener(
+      "keydown",
+      handleKeyDown
+    );
 
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener(
+        "mousedown",
+        handleClickOutside
+      );
+
+      document.removeEventListener(
+        "keydown",
+        handleKeyDown
+      );
     };
   }, []);
+
+  /* -------------------------------------------------------
+     ACCOUNT DROPDOWN
+  ------------------------------------------------------- */
+
+  useEffect(() => {
+    const handleOutside = (
+      event
+    ) => {
+      if (
+        accountMenuRef.current &&
+        !accountMenuRef.current.contains(
+          event.target
+        )
+      ) {
+        setAccountMenuOpen(false);
+      }
+    };
+
+    const handleEscape = (
+      event
+    ) => {
+      if (event.key === "Escape") {
+        setAccountMenuOpen(false);
+      }
+    };
+
+    document.addEventListener(
+      "mousedown",
+      handleOutside
+    );
+
+    document.addEventListener(
+      "keydown",
+      handleEscape
+    );
+
+    return () => {
+      document.removeEventListener(
+        "mousedown",
+        handleOutside
+      );
+
+      document.removeEventListener(
+        "keydown",
+        handleEscape
+      );
+    };
+  }, []);
+
+  const displayName =
+    user?.username ||
+    user?.name ||
+    user?.full_name ||
+    user?.email?.split("@")[0] ||
+    "ACCOUNT";
+
+  const userInitial =
+    displayName
+      .trim()
+      .charAt(0)
+      .toUpperCase() || "V";
+
   /* -------------------------------------------------------
      BASIC INPUT HANDLER
   ------------------------------------------------------- */
 
-const handleChange = (event) => {
-  const { name, value } = event.target;
+  const handleChange = (
+    event
+  ) => {
+    const {
+      name,
+      value,
+    } = event.target;
 
-  setFormData((previous) => ({
-    ...previous,
-    [name]: value,
-  }));
+    setFormData(
+      (previous) => ({
+        ...previous,
+        [name]: value,
+      })
+    );
 
-  setError("");
-  setRecommendationError("");
+    setError("");
+    setRecommendationError("");
 
-  // Clear old AI recommendations whenever
-  // trip preferences change.
-  setRecommendations([]);
-};
+    setRecommendations([]);
+  };
 
   /* -------------------------------------------------------
      DATE HANDLERS
   ------------------------------------------------------- */
 
-  const handleDepartureChange = (event) => {
-    const nextDeparture = event.target.value;
+  const handleDepartureChange = (
+    event
+  ) => {
+    const nextDeparture =
+      event.target.value;
 
-    setDepartureDate(nextDeparture);
+    setDepartureDate(
+      nextDeparture
+    );
 
     setError("");
     setRecommendationError("");
@@ -333,29 +533,37 @@ const handleChange = (event) => {
     ) {
       setReturnDate("");
 
-      setFormData((previous) => ({
-        ...previous,
-        days: 0,
-      }));
+      setFormData(
+        (previous) => ({
+          ...previous,
+          days: 0,
+        })
+      );
 
       return;
     }
 
     if (returnDate) {
-      const days = calculateTripDays(
-        nextDeparture,
-        returnDate
-      );
+      const days =
+        calculateTripDays(
+          nextDeparture,
+          returnDate
+        );
 
-      setFormData((previous) => ({
-        ...previous,
-        days,
-      }));
+      setFormData(
+        (previous) => ({
+          ...previous,
+          days,
+        })
+      );
     }
   };
 
-  const handleReturnChange = (event) => {
-    const nextReturn = event.target.value;
+  const handleReturnChange = (
+    event
+  ) => {
+    const nextReturn =
+      event.target.value;
 
     setReturnDate(nextReturn);
 
@@ -363,38 +571,68 @@ const handleChange = (event) => {
     setRecommendationError("");
     setRecommendations([]);
 
-    const days = calculateTripDays(
-      departureDate,
-      nextReturn
-    );
+    const days =
+      calculateTripDays(
+        departureDate,
+        nextReturn
+      );
 
-    setFormData((previous) => ({
-      ...previous,
-      days,
-    }));
+    setFormData(
+      (previous) => ({
+        ...previous,
+        days,
+      })
+    );
   };
 
   /* -------------------------------------------------------
      INTERESTS
   ------------------------------------------------------- */
 
-  const toggleInterest = (interestId) => {
-    setFormData((previous) => {
-      const exists =
-        previous.interests.includes(interestId);
+  const toggleInterest = (
+    interestId
+  ) => {
+    const normalizedId =
+      String(interestId)
+        .trim()
+        .toLowerCase();
 
-      return {
-        ...previous,
-        interests: exists
-          ? previous.interests.filter(
-              (item) => item !== interestId
+    setSelectedInterests(
+      (previous) => {
+        const current =
+          new Set(
+            Array.isArray(
+              previous
             )
-          : [
-              ...previous.interests,
-              interestId,
-            ],
-      };
-    });
+              ? previous
+              : []
+          );
+
+        if (
+          current.has(
+            normalizedId
+          )
+        ) {
+          current.delete(
+            normalizedId
+          );
+        } else {
+          current.add(
+            normalizedId
+          );
+        }
+
+        return INTERESTS
+          .map(
+            (interest) =>
+              interest.id
+          )
+          .filter(
+            (id) =>
+              current.has(id)
+          );
+      }
+    );
 
     setError("");
     setRecommendationError("");
@@ -406,177 +644,215 @@ const handleChange = (event) => {
   ------------------------------------------------------- */
 
   const scrollToPlanner = () => {
-    plannerRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
+    plannerRef.current?.scrollIntoView(
+      {
+        behavior: "smooth",
+        block: "start",
+      }
+    );
   };
 
   /* -------------------------------------------------------
      DAY 9 — GET ML RECOMMENDATIONS
   ------------------------------------------------------- */
 
-const handleGetRecommendations = async () => {
-  setRecommendationError("");
-  setRecommendations([]);
+  const handleGetRecommendations =
+    async () => {
+      /*
+       * Prevent rapid duplicate requests.
+       */
+      if (
+        recommendationLockRef.current ||
+        recommendationLoading
+      ) {
+        return;
+      }
 
-  const tripDays = calculateTripDays(
-    departureDate,
-    returnDate
-  );
+      setRecommendationError("");
+      setRecommendations([]);
 
-  if (!departureDate || !returnDate) {
-    setRecommendationError(
-      "Please select your departure and return dates first."
-    );
-    return;
-  }
+      const tripDays =
+        calculateTripDays(
+          departureDate,
+          returnDate
+        );
 
-  if (tripDays < 1) {
-    setRecommendationError(
-      "Return date must be after your departure date."
-    );
-    return;
-  }
+      if (
+        !departureDate ||
+        !returnDate
+      ) {
+        setRecommendationError(
+          "Please select your departure and return dates first."
+        );
+        return;
+      }
 
-  if (
-    !formData.budget ||
-    Number(formData.budget) <= 0
-  ) {
-    setRecommendationError(
-      "Please enter your total trip budget first."
-    );
-    return;
-  }
+      if (tripDays < 1) {
+        setRecommendationError(
+          "Return date must be after your departure date."
+        );
+        return;
+      }
 
-  if (formData.interests.length === 0) {
-    setRecommendationError(
-      "Please select at least one interest first."
-    );
-    return;
-  }
+      if (
+        !formData.budget ||
+        Number(formData.budget) <= 0
+      ) {
+        setRecommendationError(
+          "Please enter your total trip budget first."
+        );
+        return;
+      }
 
-  /*
-   * IMPORTANT
-   *
-   * We now send:
-   *
-   * TOTAL budget
-   * selected currency
-   * trip duration
-   *
-   * The backend performs:
-   *
-   * total budget
-   *       ↓
-   * daily budget
-   *       ↓
-   * selected currency → USD
-   *       ↓
-   * ML model
-   *
-   * This means the frontend does NOT perform
-   * currency conversion for the ML engine.
-   */
+      if (
+        selectedInterests.length ===
+        0
+      ) {
+        setRecommendationError(
+          "Please select at least one interest first."
+        );
+        return;
+      }
 
-const recommendationPayload = {
-  interests: formData.interests,
-  budget: Number(formData.budget),
-  currency: formData.currency,
-  days: Number(tripDays),
-  walking_preference:
-    formData.walking_preference,
-  top_k: 5,
-};
+      const recommendationPayload =
+        {
+          interests:
+            selectedInterests,
 
-  try {
+          budget:
+            Number(
+              formData.budget
+            ),
 
-    setRecommendationLoading(
-      true
-    );
+          currency:
+            formData.currency,
 
-    console.log(
-      "🤖 Requesting universal-currency AI recommendations..."
-    );
+          days:
+            Number(tripDays),
 
-    console.log(
-      "📊 Recommendation payload:",
-      recommendationPayload
-    );
+          walking_preference:
+            formData.walking_preference,
 
-    const response =
-      await API.post(
-        "/recommendations",
-        recommendationPayload
-      );
+          top_k: 5,
+        };
 
-    console.log(
-      "✅ AI recommendations received:",
-      response.data
-    );
+      try {
+        recommendationLockRef.current =
+          true;
 
-    if (
-      response?.data?.success &&
-      Array.isArray(
-        response.data.recommendations
-      )
-    ) {
+        setRecommendationLoading(
+          true
+        );
 
-      setRecommendations(
-        response.data.recommendations
-      );
+        console.log(
+          "🤖 Requesting universal-currency AI recommendations..."
+        );
 
-      return;
-    }
+        console.log(
+          "📊 Recommendation payload:",
+          recommendationPayload
+        );
 
-    setRecommendationError(
-      response?.data?.error ||
-        "Unable to generate destination recommendations."
-    );
+        const response =
+          await API.post(
+            "/recommendations",
+            recommendationPayload
+          );
 
-  } catch (err) {
+        console.log(
+          "✅ AI recommendations received:",
+          response.data
+        );
 
-    console.error(
-      "❌ Recommendation request failed:",
-      err
-    );
+        if (
+          response?.data
+            ?.success &&
+          Array.isArray(
+            response.data
+              .recommendations
+          )
+        ) {
+          setRecommendations(
+            response.data
+              .recommendations
+          );
 
-    setRecommendationError(
-      err?.response?.data?.detail ||
-        err?.response?.data?.error ||
-        "Unable to load AI destination recommendations."
-    );
+          return;
+        }
 
-  } finally {
+        setRecommendationError(
+          response?.data
+            ?.error ||
+            "Unable to generate destination recommendations."
+        );
+      } catch (err) {
+        console.error(
+          "❌ Recommendation request failed:",
+          err
+        );
 
-    setRecommendationLoading(
-      false
-    );
-  }
-};
+        setRecommendationError(
+          err?.response
+            ?.data?.detail ||
+            err?.response
+              ?.data?.error ||
+            "Unable to load AI destination recommendations."
+        );
+      } finally {
+        recommendationLockRef.current =
+          false;
+
+        setRecommendationLoading(
+          false
+        );
+      }
+    };
 
   /* -------------------------------------------------------
      SUBMIT
   ------------------------------------------------------- */
 
-  const handleSubmit = async (event) => {
+  const handleSubmit = async (
+    event
+  ) => {
     event.preventDefault();
+
+    /*
+     * HARD PROTECTION AGAINST
+     * MULTIPLE /plan-trip REQUESTS
+     *
+     * React state updates are asynchronous.
+     * Therefore loading alone is not enough to
+     * protect against extremely fast repeated clicks.
+     */
+    if (
+      submitLockRef.current ||
+      loading
+    ) {
+      return;
+    }
 
     setError("");
 
-    const tripDays = calculateTripDays(
-      departureDate,
-      returnDate
-    );
+    const tripDays =
+      calculateTripDays(
+        departureDate,
+        returnDate
+      );
 
-    if (!formData.destination.trim()) {
+    if (
+      !formData.destination.trim()
+    ) {
       setError(
         "Please enter a destination."
       );
       return;
     }
 
-    if (!departureDate || !returnDate) {
+    if (
+      !departureDate ||
+      !returnDate
+    ) {
       setError(
         "Please select your departure and return dates."
       );
@@ -600,27 +876,48 @@ const recommendationPayload = {
       return;
     }
 
-    if (formData.interests.length === 0) {
+    if (
+      selectedInterests.length ===
+      0
+    ) {
       setError(
         "Please select at least one interest."
       );
       return;
     }
 
+    /*
+     * LOCK BEFORE THE API REQUEST.
+     */
+    submitLockRef.current =
+      true;
+
     const payload = {
       destination:
         formData.destination.trim(),
 
-      // Automatically calculated from selected dates
-      days: Number(tripDays),
+      /*
+       * DATES ARE ALREADY CORRECTLY
+       * SENT TO THE BACKEND.
+       */
+      departure_date:
+        departureDate,
 
-      budget: Number(formData.budget),
+      return_date:
+        returnDate,
+
+      days:
+        Number(tripDays),
+
+      budget:
+        Number(formData.budget),
 
       currency:
         formData.currency,
 
-      interests:
-        formData.interests,
+      interests: [
+        ...selectedInterests,
+      ],
 
       preferences: {
         restaurant_budget:
@@ -634,6 +931,31 @@ const recommendationPayload = {
       },
     };
 
+    console.log(
+      "🔥 FINAL INTERESTS SENT TO BACKEND:",
+      payload.interests
+    );
+
+    console.log(
+      "🔥 FINAL INTEREST COUNT:",
+      payload.interests.length
+    );
+
+    console.log(
+      "🔥 FINAL DEPARTURE DATE:",
+      payload.departure_date
+    );
+
+    console.log(
+      "🔥 FINAL RETURN DATE:",
+      payload.return_date
+    );
+
+    console.log(
+      "🔥 FINAL TRIP DAYS:",
+      payload.days
+    );
+
     try {
       setLoading(true);
 
@@ -641,9 +963,64 @@ const recommendationPayload = {
         "🚀 Creating VoyageMind journey..."
       );
 
-      const response = await API.post(
-        "/plan-trip",
-        payload
+      const response =
+        await API.post(
+          "/plan-trip",
+          payload
+        );
+
+      console.log(
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      );
+
+      console.log(
+        "🧪 VOYAGEMIND DEBUG RESPONSE"
+      );
+
+      console.log(
+        "Trip interests:",
+        response?.data?.trip
+          ?.interests
+      );
+
+      console.log(
+        "Trip interest count:",
+        response?.data?.trip
+          ?.interests?.length
+      );
+
+      console.log(
+        "Trip departure date:",
+        response?.data?.trip
+          ?.departure_date
+      );
+
+      console.log(
+        "Trip return date:",
+        response?.data?.trip
+          ?.return_date
+      );
+
+      console.log(
+        "Places count:",
+        response?.data?.places
+          ?.count
+      );
+
+      console.log(
+        "Actual places array length:",
+        response?.data?.places
+          ?.places?.length
+      );
+
+      console.log(
+        "Category distribution:",
+        response?.data?.places
+          ?.category_distribution
+      );
+
+      console.log(
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       );
 
       console.log(
@@ -666,19 +1043,28 @@ const recommendationPayload = {
       );
 
       setError(
-        err?.response?.data?.detail ||
-          err?.response?.data?.error ||
+        err?.response
+          ?.data?.detail ||
+          err?.response
+            ?.data?.error ||
           "Something went wrong while creating your journey."
       );
     } finally {
+      /*
+       * ALWAYS RELEASE THE LOCK.
+       */
+      submitLockRef.current =
+        false;
+
       setLoading(false);
     }
   };
 
-  const tripDays = calculateTripDays(
-    departureDate,
-    returnDate
-  );
+  const tripDays =
+    calculateTripDays(
+      departureDate,
+      returnDate
+    );
 
   return (
     <main className="voyage-page">
@@ -756,6 +1142,160 @@ const recommendationPayload = {
           <div className="online-status">
             <span className="online-dot" />
             ONLINE
+          </div>
+
+          <div
+            className="voyagemind-account"
+            ref={accountMenuRef}
+          >
+
+            {authLoading ? (
+              <div
+                className="voyagemind-account-loading"
+                aria-label="Loading account"
+              >
+                <span />
+              </div>
+            ) : user ? (
+              <>
+                <button
+                  type="button"
+                  className="voyagemind-account-trigger"
+                  onClick={() =>
+                    setAccountMenuOpen(
+                      (previous) =>
+                        !previous
+                    )
+                  }
+                  aria-expanded={
+                    accountMenuOpen
+                  }
+                  aria-haspopup="menu"
+                  aria-label="Open account menu"
+                >
+                  <span className="voyagemind-account-avatar">
+                    {userInitial}
+                  </span>
+
+                  <span className="voyagemind-account-name">
+                    {displayName}
+                  </span>
+
+                  <span
+                    className={
+                      accountMenuOpen
+                        ? "voyagemind-account-chevron open"
+                        : "voyagemind-account-chevron"
+                    }
+                  >
+                    ↓
+                  </span>
+                </button>
+
+                {accountMenuOpen && (
+                  <div
+                    className="voyagemind-account-menu"
+                    role="menu"
+                  >
+                    <div className="voyagemind-account-header">
+
+                      <div className="voyagemind-account-avatar large">
+                        {userInitial}
+                      </div>
+
+                      <div className="voyagemind-account-details">
+                        <strong>
+                          {displayName}
+                        </strong>
+
+                        {user.email && (
+                          <span>
+                            {user.email}
+                          </span>
+                        )}
+                      </div>
+
+                    </div>
+
+                    <div className="voyagemind-account-divider" />
+
+                    <button
+                      type="button"
+                      className="voyagemind-account-item"
+                      onClick={() => {
+                        setAccountMenuOpen(
+                          false
+                        );
+
+                        onOpenMyTrips?.();
+                      }}
+                    >
+                      <span>
+                        ◫
+                      </span>
+
+                      <span>
+                        MY TRIPS
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="voyagemind-account-item"
+                      onClick={() => {
+                        setAccountMenuOpen(
+                          false
+                        );
+
+                        onOpenFavorites?.();
+                      }}
+                    >
+                      <span>
+                        ♡
+                      </span>
+
+                      <span>
+                        FAVORITES
+                      </span>
+                    </button>
+
+                    <div className="voyagemind-account-divider" />
+
+                    <button
+                      type="button"
+                      className="voyagemind-account-item logout"
+                      onClick={() => {
+                        setAccountMenuOpen(
+                          false
+                        );
+
+                        onLogout?.();
+                      }}
+                    >
+                      <span>
+                        ↪
+                      </span>
+
+                      <span>
+                        SIGN OUT
+                      </span>
+                    </button>
+
+                  </div>
+                )}
+              </>
+            ) : (
+              <button
+                type="button"
+                className="voyagemind-signin-button"
+                onClick={
+                  onOpenAuth
+                }
+              >
+                SIGN IN →
+              </button>
+            )}
+
           </div>
 
         </div>
@@ -945,7 +1485,7 @@ const recommendationPayload = {
             <div className="image-location-card">
 
               <span className="location-pin">
-                ●
+                ✈️
               </span>
 
               <div>
@@ -1070,16 +1610,6 @@ const recommendationPayload = {
 
             </div>
 
-            <div className="planner-number">
-              <span>
-                01
-              </span>
-
-              <small>
-                / PLAN
-              </small>
-            </div>
-
           </div>
 
           <form onSubmit={handleSubmit}>
@@ -1176,8 +1706,6 @@ const recommendationPayload = {
 
               <div className="date-range-grid">
 
-                {/* DEPARTURE */}
-
                 <div className="date-card">
 
                   <div className="date-card-top">
@@ -1222,8 +1750,6 @@ const recommendationPayload = {
                   </div>
 
                 </div>
-
-                {/* RETURN */}
 
                 <div className="date-card">
 
@@ -1272,8 +1798,6 @@ const recommendationPayload = {
                 </div>
 
               </div>
-
-              {/* DURATION */}
 
               <div className="duration-summary">
 
@@ -1324,17 +1848,17 @@ const recommendationPayload = {
                 </label>
 
                 <span className="section-hint">
-                  Flights + stay + experiences
+                  Flights + Stay + Experiences
                 </span>
 
               </div>
 
               <div className="budget-box">
 
-                {/* CURRENCY SELECTOR */}
-
                 <div
-                  ref={currencyDropdownRef}
+                  ref={
+                    currencyDropdownRef
+                  }
                   className={`currency-selector ${
                     currencyDropdownOpen
                       ? "currency-selector-open"
@@ -1347,26 +1871,37 @@ const recommendationPayload = {
                     className="currency-trigger"
                     onClick={() =>
                       setCurrencyDropdownOpen(
-                        (previous) => !previous
+                        (previous) =>
+                          !previous
                       )
                     }
                     aria-haspopup="listbox"
-                    aria-expanded={currencyDropdownOpen}
+                    aria-expanded={
+                      currencyDropdownOpen
+                    }
                     aria-label={`Selected currency: ${selectedCurrency.code}, ${selectedCurrency.name}`}
                   >
 
                     <span className="currency-trigger-symbol">
-                      {CURRENCY_SYMBOLS[formData.currency] || "¤"}
+                      {
+                        selectedCurrency.symbol
+                      }
                     </span>
 
                     <span className="currency-trigger-content">
+
                       <span className="currency-trigger-code">
-                        {selectedCurrency.code}
+                        {
+                          selectedCurrency.code
+                        }
                       </span>
 
                       <span className="currency-trigger-name">
-                        {selectedCurrency.name}
+                        {
+                          selectedCurrency.name
+                        }
                       </span>
+
                     </span>
 
                     <span
@@ -1390,7 +1925,9 @@ const recommendationPayload = {
                     >
 
                       <div className="currency-dropdown-heading">
+
                         <div>
+
                           <span className="currency-dropdown-title">
                             Currency
                           </span>
@@ -1398,64 +1935,100 @@ const recommendationPayload = {
                           <span className="currency-dropdown-subtitle">
                             Choose your display currency
                           </span>
+
                         </div>
 
                         <span className="currency-dropdown-current">
-                          {selectedCurrency.code}
+                          {
+                            selectedCurrency.code
+                          }
                         </span>
+
                       </div>
 
                       <div className="currency-options">
-                        {CURRENCY_OPTIONS.map((currency) => {
-                          const selected =
-                            formData.currency === currency.code;
 
-                          return (
-                            <button
-                              key={currency.code}
-                              type="button"
-                              role="option"
-                              aria-selected={selected}
-                              className={`currency-option ${
-                                selected
-                                  ? "currency-option-selected"
-                                  : ""
-                              }`}
-                              onClick={() => {
-                                setFormData((previous) => ({
-                                  ...previous,
-                                  currency: currency.code,
-                                }));
+                        {CURRENCY_OPTIONS.map(
+                          (currency) => {
+                            const selected =
+                              formData.currency ===
+                              currency.code;
 
-                                setCurrencyDropdownOpen(false);
-                                setError("");
-                                setRecommendationError("");
-                                setRecommendations([]);
-                              }}
-                            >
-                              <span className="currency-option-symbol">
-                                {CURRENCY_SYMBOLS[currency.code] || currency.symbol || "¤"}
-                              </span>
-
-                              <span className="currency-option-code">
-                                {currency.code}
-                              </span>
-
-                              <span className="currency-option-name">
-                                {currency.name}
-                              </span>
-
-                              <span
-                                className={`currency-option-check ${
-                                  selected ? "visible" : ""
+                            return (
+                              <button
+                                key={
+                                  currency.code
+                                }
+                                type="button"
+                                role="option"
+                                aria-selected={
+                                  selected
+                                }
+                                className={`currency-option ${
+                                  selected
+                                    ? "currency-option-selected"
+                                    : ""
                                 }`}
-                                aria-hidden="true"
+                                onClick={() => {
+
+                                  setFormData(
+                                    (previous) => ({
+                                      ...previous,
+                                      currency:
+                                        currency.code,
+                                    })
+                                  );
+
+                                  setCurrencyDropdownOpen(
+                                    false
+                                  );
+
+                                  setError("");
+
+                                  setRecommendationError(
+                                    ""
+                                  );
+
+                                  setRecommendations(
+                                    []
+                                  );
+                                }}
                               >
-                                ✓
-                              </span>
-                            </button>
-                          );
-                        })}
+
+                                <span className="currency-option-symbol">
+                                  {
+                                    currency.symbol
+                                  }
+                                </span>
+
+                                <span className="currency-option-code">
+                                  {
+                                    currency.code
+                                  }
+                                </span>
+
+                                <span className="currency-option-name">
+                                  {
+                                    currency.name
+                                  }
+                                </span>
+
+                                <span
+                                  className={`currency-option-check ${
+                                    selected
+                                      ? "visible"
+                                      : ""
+                                  }`}
+                                  aria-hidden="true"
+                                >
+                                  ✓
+                                </span>
+
+                              </button>
+                            );
+                          }
+                        )}
+
                       </div>
 
                     </div>
@@ -1463,12 +2036,12 @@ const recommendationPayload = {
 
                 </div>
 
-                {/* BUDGET INPUT */}
-
                 <div className="budget-input-area">
 
                   <span className="currency-prefix">
-                    {CURRENCY_SYMBOLS[formData.currency] || "¤"}
+                    {
+                      selectedCurrency.symbol
+                    }
                   </span>
 
                   <input
@@ -1517,7 +2090,7 @@ const recommendationPayload = {
 
                 <span className="selected-count">
                   {
-                    formData.interests.length
+                    selectedInterests.length
                   }{" "}
                   SELECTED
                 </span>
@@ -1534,7 +2107,7 @@ const recommendationPayload = {
                 {INTERESTS.map(
                   (interest) => {
                     const selected =
-                      formData.interests.includes(
+                      selectedInterests.includes(
                         interest.id
                       );
 
@@ -1549,10 +2122,16 @@ const recommendationPayload = {
                             ? "selected"
                             : ""
                         }`}
-                        onClick={() =>
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+
                           toggleInterest(
                             interest.id
-                          )
+                          );
+                        }}
+                        aria-pressed={
+                          selected
                         }
                       >
 
@@ -1604,8 +2183,6 @@ const recommendationPayload = {
               </div>
 
               <div className="preferences-grid">
-
-                {/* RESTAURANT */}
 
                 <div className="preference-card">
 
@@ -1665,8 +2242,6 @@ const recommendationPayload = {
                   </div>
 
                 </div>
-
-                {/* HOTEL */}
 
                 <div className="preference-card">
 
@@ -1729,8 +2304,6 @@ const recommendationPayload = {
 
               </div>
 
-              {/* WALKING */}
-
               <button
                 type="button"
                 className={`walking-card ${
@@ -1739,6 +2312,7 @@ const recommendationPayload = {
                     : ""
                 }`}
                 onClick={() => {
+
                   setFormData(
                     (previous) => ({
                       ...previous,
@@ -1921,7 +2495,8 @@ const recommendationPayload = {
                 </div>
               )}
 
-              {recommendations.length > 0 && (
+              {recommendations.length >
+                0 && (
                 <div className="ml-results">
 
                   <div className="ml-results-header">
@@ -1994,7 +2569,8 @@ const recommendationPayload = {
                                 )}
                               </div>
 
-                              {index === 0 && (
+                              {index ===
+                                0 && (
                                 <span className="ml-best-badge">
                                   BEST MATCH
                                 </span>
@@ -2060,12 +2636,12 @@ const recommendationPayload = {
                                 </span>
 
                                 <strong>
-  {formatCurrency(
-    recommendation.average_daily_cost,
-    recommendation.currency ||
-      formData.currency
-  )}
-</strong>
+                                  {formatCurrency(
+                                    recommendation.average_daily_cost,
+                                    recommendation.currency ||
+                                      formData.currency
+                                  )}
+                                </strong>
 
                               </div>
 
@@ -2076,12 +2652,12 @@ const recommendationPayload = {
                                 </span>
 
                                 <strong>
-  {formatCurrency(
-    recommendation.hotel_price,
-    recommendation.currency ||
-      formData.currency
-  )}
-</strong>
+                                  {formatCurrency(
+                                    recommendation.hotel_price,
+                                    recommendation.currency ||
+                                      formData.currency
+                                  )}
+                                </strong>
 
                               </div>
 
@@ -2092,12 +2668,12 @@ const recommendationPayload = {
                                 </span>
 
                                 <strong>
-  {formatCurrency(
-    recommendation.restaurant_price,
-    recommendation.currency ||
-      formData.currency
-  )}
-</strong>
+                                  {formatCurrency(
+                                    recommendation.restaurant_price,
+                                    recommendation.currency ||
+                                      formData.currency
+                                  )}
+                                </strong>
 
                               </div>
 
@@ -2193,7 +2769,7 @@ const recommendationPayload = {
 
                   <strong>
                     {
-                      formData.interests.length
+                      selectedInterests.length
                     }{" "}
                     selected
                   </strong>

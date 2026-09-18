@@ -112,12 +112,15 @@ app = FastAPI(
     description="Autonomous Multi-Agent Travel Intelligence Platform",
     version="1.0.0",
 )
+
 Base.metadata.create_all(bind=engine)
 
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(trips_router)
 app.include_router(favorites_router)
+
+
 # ============================================================
 # CORS
 # ============================================================
@@ -165,7 +168,7 @@ def health():
 
 @app.post("/plan-trip")
 async def plan_trip(trip: TripRequest):
-
+    print("🔥 PLAN-TRIP REQUEST RECEIVED", flush=True)
     # ========================================================
     # STEP 1 — DESTINATION AGENT
     # ========================================================
@@ -202,19 +205,64 @@ async def plan_trip(trip: TripRequest):
     )
 
     # ========================================================
-    # STEP 2 + STEP 3
-    # WEATHER + PLACES
+    # STEP 2 + STEP 3 + STEP 3.5
+    # WEATHER + PLACES + MEMORY
     # RUN IN PARALLEL
     # ========================================================
 
     print()
     print("=" * 70)
-    print("⚡ WEATHER + PLACES AGENTS")
+    print("⚡ WEATHER + PLACES + MEMORY AGENTS")
     print("=" * 70)
 
     print(
-        "⚡ Running Weather Agent + Places Agent in parallel..."
+        "⚡ Running Weather Agent + Places Agent + "
+        "Memory Retrieval in parallel..."
     )
+
+    # ========================================================
+    # USER MEMORY SETUP
+    # ========================================================
+
+    print()
+    print("🧠 Preparing User Memory Retrieval...")
+
+    # --------------------------------------------------------
+    # TEMPORARY USER ID
+    # --------------------------------------------------------
+
+    user_id = "user-1"
+
+    # ========================================================
+    # BUILD SEMANTIC MEMORY QUERY
+    # ========================================================
+
+    memory_query = (
+
+        f"Travel preferences for planning a trip to "
+        f"{trip.destination}. "
+
+        f"Interests: "
+        f"{', '.join(trip.interests)}. "
+
+        f"Budget: "
+        f"{trip.budget} {trip.currency}. "
+
+        f"Preferences: "
+
+        f"restaurant budget "
+        f"{trip.preferences.restaurant_budget}, "
+
+        f"walking preference "
+        f"{trip.preferences.walking_preference}, "
+
+        f"hotel preference "
+        f"{trip.preferences.hotel_preference}."
+    )
+
+    # ========================================================
+    # WEATHER AGENT
+    # ========================================================
 
     async def fetch_weather():
 
@@ -232,6 +280,10 @@ async def plan_trip(trip: TripRequest):
         )
 
         return result
+
+    # ========================================================
+    # PLACES AGENT
+    # ========================================================
 
     async def fetch_places():
 
@@ -262,13 +314,68 @@ async def plan_trip(trip: TripRequest):
         return result
 
     # ========================================================
-    # RUN WEATHER + PLACES SIMULTANEOUSLY
+    # MEMORY RETRIEVAL
     # ========================================================
 
-    weather, places = await asyncio.gather(
+    async def fetch_memory():
+
+        print()
+        print("🧠 User Memory Retrieval started...")
+
+        result = await asyncio.to_thread(
+            search_memories,
+            user_id=user_id,
+            query=memory_query,
+            n_results=5,
+        )
+
+        print(
+            "✅ User Memory Retrieval completed."
+        )
+
+        return result
+
+    # ========================================================
+    # RUN WEATHER + PLACES + MEMORY SIMULTANEOUSLY
+    # ========================================================
+
+    weather, places, memory_result = await asyncio.gather(
         fetch_weather(),
         fetch_places(),
+        fetch_memory(),
     )
+
+    # ========================================================
+    # EXTRACT USER MEMORIES
+    # ========================================================
+
+    user_memories = memory_result.get(
+        "memories",
+        [],
+    )
+
+    # ========================================================
+    # DISPLAY RETRIEVED MEMORIES
+    # ========================================================
+
+    if user_memories:
+
+        print(
+            f"✅ Retrieved "
+            f"{len(user_memories)} relevant memories:"
+        )
+
+        for item in user_memories:
+
+            print(
+                f"   • {item.get('memory')}"
+            )
+
+    else:
+
+        print(
+            "ℹ️ No relevant user memories found."
+        )
 
     # ========================================================
     # PLACES RESULT PROCESSING
@@ -345,89 +452,6 @@ async def plan_trip(trip: TripRequest):
             "places":
                 places,
         }
-
-    # ========================================================
-    # STEP 3.5 — USER MEMORY RETRIEVAL
-    # ========================================================
-
-    print()
-    print("=" * 70)
-    print("🧠 USER MEMORY RETRIEVAL")
-    print("=" * 70)
-
-    # --------------------------------------------------------
-    # TEMPORARY USER ID
-    # --------------------------------------------------------
-
-    user_id = "user-1"
-
-    # ========================================================
-    # BUILD SEMANTIC MEMORY QUERY
-    # ========================================================
-
-    memory_query = (
-
-        f"Travel preferences for planning a trip to "
-        f"{trip.destination}. "
-
-        f"Interests: "
-        f"{', '.join(trip.interests)}. "
-
-        f"Budget: "
-        f"{trip.budget} {trip.currency}. "
-
-        f"Preferences: "
-
-        f"restaurant budget "
-        f"{trip.preferences.restaurant_budget}, "
-
-        f"walking preference "
-        f"{trip.preferences.walking_preference}, "
-
-        f"hotel preference "
-        f"{trip.preferences.hotel_preference}."
-    )
-
-    # ========================================================
-    # SEARCH CHROMADB
-    # ========================================================
-
-    memory_result = search_memories(
-
-        user_id=user_id,
-
-        query=memory_query,
-
-        n_results=5,
-    )
-
-    user_memories = memory_result.get(
-        "memories",
-        [],
-    )
-
-    # ========================================================
-    # DISPLAY RETRIEVED MEMORIES
-    # ========================================================
-
-    if user_memories:
-
-        print(
-            f"✅ Retrieved "
-            f"{len(user_memories)} relevant memories:"
-        )
-
-        for item in user_memories:
-
-            print(
-                f"   • {item.get('memory')}"
-            )
-
-    else:
-
-        print(
-            "ℹ️ No relevant user memories found."
-        )
 
     # ========================================================
     # STEP 4 — LANGGRAPH AUTONOMOUS TRAVEL WORKFLOW

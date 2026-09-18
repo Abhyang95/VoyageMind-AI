@@ -965,7 +965,11 @@ def build_itinerary_schema():
 
     }
 
+# ============================================================
+# CACHED ITINERARY SCHEMA
+# ============================================================
 
+ITINERARY_SCHEMA = build_itinerary_schema()
 # ============================================================
 # MEMORY EXTRACTION JSON SCHEMA
 # ============================================================
@@ -1055,6 +1059,12 @@ def generate_with_retry(
                 "=================================="
             )
 
+            # ----------------------------------------------------
+            # START GEMINI TIMER
+            # ----------------------------------------------------
+
+            gemini_start_time = time.perf_counter()
+
             response = client.models.generate_content(
 
                 model=model_name,
@@ -1068,7 +1078,7 @@ def generate_with_retry(
                     response_mime_type="application/json",
 
                     response_schema=(
-                        build_itinerary_schema()
+                        ITINERARY_SCHEMA
                     ),
 
                     automatic_function_calling=(
@@ -1085,11 +1095,98 @@ def generate_with_retry(
 
             )
 
+            # ----------------------------------------------------
+            # END GEMINI TIMER
+            # ----------------------------------------------------
+
+            gemini_elapsed = (
+                time.perf_counter()
+                - gemini_start_time
+            )
+
             print()
 
             print(
-                f"✅ Gemini request successful "
-                f"using {model_name}"
+                "⏱️ Gemini generation time: "
+                f"{gemini_elapsed:.2f}s"
+            )
+
+            # ----------------------------------------------------
+            # GEMINI USAGE METADATA
+            # ----------------------------------------------------
+
+            usage = getattr(
+                response,
+                "usage_metadata",
+                None,
+            )
+
+            if usage:
+
+                prompt_tokens = getattr(
+                    usage,
+                    "prompt_token_count",
+                    None,
+                )
+
+                output_tokens = getattr(
+                    usage,
+                    "candidates_token_count",
+                    None,
+                )
+
+                thoughts_tokens = getattr(
+                    usage,
+                    "thoughts_token_count",
+                    None,
+                )
+
+                total_tokens = getattr(
+                    usage,
+                    "total_token_count",
+                    None,
+                )
+
+                print(
+                    "📊 Gemini Usage:"
+                )
+
+                print(
+                    f"   📥 Prompt tokens   → "
+                    f"{prompt_tokens}"
+                )
+
+                print(
+                    f"   📤 Output tokens   → "
+                    f"{output_tokens}"
+                )
+
+                print(
+                    f"   🧠 Thoughts tokens → "
+                    f"{thoughts_tokens}"
+                )
+
+                print(
+                    f"   🔢 Total tokens    → "
+                    f"{total_tokens}"
+                )
+
+            else:
+
+                print(
+                    "📊 Gemini Usage Metadata "
+                    "→ unavailable"
+                )
+
+            print()
+
+            print(
+                f"🤖 Model used → "
+                f"{model_name}"
+            )
+
+            print(
+                "✅ Gemini request successful"
             )
 
             return {
@@ -1106,12 +1203,28 @@ def generate_with_retry(
 
         except Exception as error:
 
+            # ----------------------------------------------------
+            # MEASURE FAILED REQUEST TOO
+            # ----------------------------------------------------
+
+            gemini_elapsed = (
+                time.perf_counter()
+                - gemini_start_time
+                if "gemini_start_time" in locals()
+                else 0
+            )
+
             last_error = error
 
             print()
 
             print(
                 "❌ Gemini attempt failed."
+            )
+
+            print(
+                f"⏱️ Gemini request time: "
+                f"{gemini_elapsed:.2f}s"
             )
 
             print(
@@ -2169,7 +2282,6 @@ def generate_itinerary(
     try:
 
         print()
-
         print(
             "🤖 Gemini itinerary generation started..."
         )
@@ -2212,7 +2324,6 @@ def generate_itinerary(
         )
 
         print()
-
         print(
             "📦 Places prepared for Gemini:"
         )
@@ -2247,12 +2358,16 @@ def generate_itinerary(
 
             for tag in tags:
 
+                normalized_tag = (
+                    normalize_interest_name(
+                        tag
+                    )
+                )
+
                 for interest in interests:
 
                     if (
-                        normalize_interest_name(
-                            tag
-                        )
+                        normalized_tag
                         ==
                         normalize_interest_name(
                             interest
@@ -2264,7 +2379,6 @@ def generate_itinerary(
                         ] += 1
 
         print()
-
         print(
             "📊 Balanced Gemini input:"
         )
@@ -2275,7 +2389,6 @@ def generate_itinerary(
         )
 
         print()
-
         print(
             "📊 Interest coverage inside those places:"
         )
@@ -2344,7 +2457,6 @@ def generate_itinerary(
         if reflection_feedback_text:
 
             print()
-
             print(
                 "🔄 Reflection Agent feedback received."
             )
@@ -2371,7 +2483,6 @@ def generate_itinerary(
         if user_memory_text:
 
             print()
-
             print(
                 "🧠 User memory personalization "
                 "enabled."
@@ -2384,24 +2495,10 @@ def generate_itinerary(
         else:
 
             print()
-
             print(
                 "🧠 No user memory personalization "
                 "available."
             )
-
-        # ====================================================
-        # VERIFIED NAME LIST
-        # ====================================================
-
-        verified_names_text = "\n".join(
-
-            f"- {place['name']}"
-
-            for place
-            in places_context
-
-        )
 
         # ====================================================
         # AVAILABLE INTERESTS
@@ -2417,20 +2514,13 @@ def generate_itinerary(
             if count > 0:
 
                 available_interest_lines.append(
-
-                    f"- {interest}: "
-                    f"{count} verified place "
-                    f"record(s)"
-
+                    f"- {interest}: {count} verified record(s)"
                 )
 
             else:
 
                 available_interest_lines.append(
-
-                    f"- {interest}: "
-                    f"0 verified places"
-
+                    f"- {interest}: 0 verified places"
                 )
 
         available_interests_text = "\n".join(
@@ -2451,10 +2541,9 @@ def generate_itinerary(
 REFLECTION AGENT — REQUIRED CORRECTIONS
 ============================================================
 
-A previous itinerary was generated and then checked by the
-Validation Agent.
+The previous itinerary was checked by the Validation Agent.
 
-The Reflection Agent identified the following problems:
+The Reflection Agent identified these problems:
 
 {reflection_feedback_text}
 
@@ -2466,13 +2555,12 @@ IMPORTANT:
 - Keep all existing strict itinerary rules.
 - Continue using ONLY the verified places supplied below.
 - Do NOT invent replacement locations.
-- Do NOT use places outside the verified place list.
+- Do NOT use places outside the verified place data.
 - Do NOT remove valid user preferences.
 - Do NOT reduce the requested number of days.
 - Do NOT repeat physical places.
 - Make the smallest practical corrections necessary.
-- The new itinerary must be a genuinely improved version of
-  the previous itinerary.
+- The new itinerary must be genuinely improved.
 
 ============================================================
 END REFLECTION AGENT CORRECTIONS
@@ -2480,14 +2568,14 @@ END REFLECTION AGENT CORRECTIONS
 """
 
         # ====================================================
-        # PROMPT
+        # OPTIMIZED PROMPT
         # ====================================================
 
         prompt = f"""
 You are VoyageMind AI's itinerary planning engine.
 
-Your job is to create a practical, personalized travel
-itinerary using ONLY verified places supplied below.
+Create a practical, personalized travel itinerary using ONLY
+the verified place data supplied below.
 
 ============================================================
 USER SELECTED INTERESTS
@@ -2507,102 +2595,89 @@ CRITICAL INTEREST COVERAGE RULE
 
 The user intentionally selected multiple interests.
 
-You MUST include ALL selected interests that have at
-least one verified place available.
+You MUST include ALL selected interests that have at least
+one verified place available.
 
 Do NOT focus mainly on the first few interests.
 
 Every available selected interest must appear in at least
-ONE activity in the final itinerary.
+ONE activity.
 
 If one physical place satisfies multiple interests, that
 place can count toward multiple interests.
 
-However, NEVER repeat the same physical place merely to
-represent another interest.
+NEVER repeat the same physical place merely to represent
+another interest.
 
 If an interest has ZERO verified places available, do NOT
-invent a place.
-
-Instead, mention that interest in the warnings array.
+invent a place. Mention that interest in the warnings array.
 
 {reflection_section}
-
-============================================================
-VERIFIED PLACE NAMES
-============================================================
-
-{verified_names_text}
 
 ============================================================
 STRICT RULES
 ============================================================
 
-1. Use ONLY verified place names listed above.
+1. Use ONLY verified place names contained in VERIFIED PLACES DATA.
 
-2. Every activity "place" MUST exactly match one of the
-   verified place names.
+2. Every activity "place" MUST exactly match a verified place name.
 
 3. NEVER invent a location.
 
 4. NEVER create a location from general knowledge.
 
-5. NEVER modify, translate, shorten or creatively rewrite
-   a verified place name.
+5. NEVER modify, translate, shorten or creatively rewrite a
+   verified place name.
 
 6. Generate EXACTLY {requested_days} day objects.
 
 7. Each day MUST contain exactly 2 activities.
 
-8. Do not repeat the same physical place.
+8. Do NOT repeat the same physical place.
 
 9. Cover EVERY selected interest that has verified places.
 
-10. Spread interests across the entire itinerary.
+10. Spread interests across the itinerary.
 
 11. Do NOT prioritize Architecture, Food, Museums or Nature
-    unless those are the only available interests.
+    unless those are the available selected interests.
 
 12. Use "interest_tags" from the verified place data.
 
-13. The activity "interest" field MUST contain one of the
-    user's selected interests.
+13. The activity "interest" MUST contain one of the user's
+    selected interests.
 
-14. The activity "interest" should represent why that place
-    satisfies the user's selected interest.
+14. The activity "interest" should explain why that place
+    satisfies the selected interest.
 
 15. A place may satisfy multiple interests.
 
-16. If a place satisfies multiple interests, select the
-    most appropriate interest for the activity.
+16. If a place satisfies multiple interests, select the most
+    appropriate interest for the activity.
 
-17. Do not repeat a physical place just because it satisfies
-    another interest.
+17. Consider weather conditions.
 
-18. Consider weather conditions.
+18. Consider opening hours when available.
 
-19. Consider opening hours when available.
+19. Prefer geographically close places on the same day.
 
-20. Prefer geographically close places on the same day.
+20. Do not claim exact ticket prices unless explicitly provided.
 
-21. Do not claim exact ticket prices unless explicitly
-    provided.
-
-22. For unknown costs use exactly:
+21. For unknown costs use exactly:
 
     "Not provided"
 
-23. Keep descriptions concise.
+22. Keep descriptions concise.
 
-24. Use clear natural English.
+23. Use clear natural English.
 
-25. Do not include Markdown.
+24. Do not include Markdown.
 
-26. Do not include code fences.
+25. Do not include code fences.
 
-27. Do not include explanations outside the JSON object.
+26. Do not include explanations outside the JSON object.
 
-28. Return ONLY the requested structured JSON.
+27. Return ONLY the requested structured JSON.
 
 ============================================================
 USER TRIP REQUEST
@@ -2634,12 +2709,9 @@ MEMORY RULES
 
 Use the user memories above to personalize the itinerary.
 
-IMPORTANT:
-
 1. Treat memories as preferences, not hard constraints.
 
-2. Preserve explicit preferences from the current trip
-   request.
+2. Preserve explicit preferences from the current trip request.
 
 3. If a memory conflicts with the current trip request,
    follow the current trip request.
@@ -2650,22 +2722,17 @@ IMPORTANT:
 
 6. Continue using ONLY verified places.
 
-7. Do NOT mention internal memory retrieval in the final
-   itinerary.
+7. Do NOT mention internal memory retrieval in the final itinerary.
 
 8. Do NOT expose memory metadata, similarity scores,
    database information, or internal system information.
 
-9. Use the memories naturally when selecting activities,
+9. Use memories naturally when selecting activities,
    travel style, restaurants, hotels, walking preferences,
    and other relevant planning decisions.
 
 10. Current user instructions always have higher priority
     than stored memories.
-
-============================================================
-END USER MEMORY
-============================================================
 
 ============================================================
 VERIFIED PLACES DATA
@@ -2674,36 +2741,26 @@ VERIFIED PLACES DATA
 {places_json}
 
 ============================================================
-REFLECTION AGENT FEEDBACK
-============================================================
-
-{reflection_feedback_text}
-
-============================================================
 REPLAN RULE
 ============================================================
 
-If Reflection Agent feedback is provided above, this is a
-REPLANNING request.
+If Reflection Agent corrections are provided above, this is
+a REPLANNING request.
 
-The previous itinerary was already generated and then checked
-by the Validation Agent.
-
-You MUST correct the identified problems.
+You MUST correct every identified problem.
 
 IMPORTANT:
 
 1. Do NOT blindly reproduce the previous itinerary.
 
-2. Fix every correction instruction provided by the
-   Reflection Agent.
+2. Fix every correction instruction.
 
 3. Continue using ONLY verified places.
 
 4. Do NOT invent new places.
 
-5. Do NOT remove the user's selected interests unless there
-   are no verified places for that interest.
+5. Do NOT remove selected interests unless there are no
+   verified places for that interest.
 
 6. Preserve the user's budget and preferences.
 
@@ -2713,11 +2770,11 @@ IMPORTANT:
 8. If travel time was identified as a problem, replace or
    reorder activities to reduce unnecessary travel.
 
-9. If an opening-hours problem was identified, choose a
-   verified alternative or reorganize the activities.
+9. If an opening-hours problem was identified, reorganize
+   using verified alternatives.
 
 10. If a preference problem was identified, adjust the
-    itinerary to better match the user's preferences.
+    itinerary accordingly.
 
 11. The corrected itinerary must still contain exactly
     {requested_days} day objects.
@@ -2742,7 +2799,6 @@ Create the itinerary now.
         for model_name in MODELS:
 
             print()
-
             print(
                 "=================================="
             )
@@ -2779,7 +2835,6 @@ Create the itinerary now.
             )
 
             print()
-
             print(
                 f"⚠️ Model failed: "
                 f"{model_name}"
@@ -2792,7 +2847,6 @@ Create the itinerary now.
         if not generation_result:
 
             print()
-
             print(
                 "❌ ALL GEMINI MODELS FAILED"
             )
@@ -2851,7 +2905,6 @@ Create the itinerary now.
             }
 
         print()
-
         print(
             "✅ Gemini response received."
         )
@@ -2890,7 +2943,10 @@ Create the itinerary now.
 
         json_error = None
 
-        for json_attempt in range(1, 3):
+        for json_attempt in range(
+            1,
+            3
+        ):
 
             try:
 
@@ -2905,7 +2961,6 @@ Create the itinerary now.
                 json_error = error
 
                 print()
-
                 print(
                     f"❌ Invalid JSON received "
                     f"(generation retry "
@@ -2924,17 +2979,43 @@ CRITICAL REQUIREMENTS:
 - Return ONLY valid JSON.
 - Generate EXACTLY {requested_days} day objects.
 - Each day MUST contain exactly 2 activities.
-- Use ONLY the verified place names supplied in the original prompt.
+- Use ONLY verified place names contained in the verified
+  places data below.
 - Do NOT truncate the response.
-- Complete every required field before ending the JSON object.
-- Keep all text concise so the entire response fits within the output limit.
+- Complete every required field.
+- Keep all text concise so the response fits within the
+  output limit.
+- Apply any Reflection Agent corrections.
 
-If Reflection Agent corrections are present, preserve and apply
-those corrections.
+VERIFIED PLACES DATA:
 
-Original request and verified travel data:
+{places_json}
 
-{prompt}
+USER INTERESTS:
+
+{interests_json}
+
+USER MEMORY:
+
+{user_memory_text}
+
+TRIP:
+
+{trip_json}
+
+DESTINATION:
+
+{destination_json}
+
+WEATHER:
+
+{weather_json}
+
+REFLECTION CORRECTIONS:
+
+{reflection_feedback_text}
+
+Return ONLY the final structured JSON.
 """
 
                     retry_result = generate_with_retry(
@@ -2982,7 +3063,6 @@ Original request and verified travel data:
                         continue
 
                 print()
-
                 print(
                     response_text
                 )
@@ -3214,9 +3294,9 @@ Original request and verified travel data:
                         normalized_activity_interest
                     )
 
-                # ------------------------------------------------
-                # Also infer interest from actual verified place.
-                # ------------------------------------------------
+                # --------------------------------------------
+                # INFER INTEREST FROM VERIFIED PLACE
+                # --------------------------------------------
 
                 matching_place = next(
 
@@ -3273,7 +3353,6 @@ Original request and verified travel data:
         if invalid_places:
 
             print()
-
             print(
                 "❌ Gemini generated "
                 "unverified places:"
@@ -3317,7 +3396,6 @@ Original request and verified travel data:
         if missing_interests:
 
             print()
-
             print(
                 "⚠️ Gemini did not explicitly cover "
                 "all available interests."
@@ -3336,7 +3414,6 @@ Original request and verified travel data:
         # ====================================================
 
         print()
-
         print(
             "🎉 Gemini itinerary generated successfully!"
         )
@@ -3465,7 +3542,6 @@ Original request and verified travel data:
     except Exception as error:
 
         print()
-
         print(
             "❌ Gemini itinerary generation failed."
         )

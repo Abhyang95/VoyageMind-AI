@@ -1,57 +1,38 @@
-import {
-  useLayoutEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import "./DestinationDashboard.css";
 
 const CATEGORY_META = {
   Architecture: {
-    icon: "🏛️",
-    description:
-      "Iconic buildings, landmarks & city design",
+    icon: "🕌",
+    description: "Iconic buildings, landmarks & city design",
   },
-
   History: {
     icon: "🏺",
-    description:
-      "Historic places & cultural heritage",
+    description: "Historic places & cultural heritage",
   },
-
   Food: {
-    icon: "🍽️",
-    description:
-      "Local food, restaurants & culinary spots",
+    icon: "🍜",
+    description: "Local food, restaurants & culinary spots",
   },
-
   Nightlife: {
-    icon: "🌙",
-    description:
-      "Bars, evening experiences & night spots",
+    icon: "🌃",
+    description: "Bars, evening experiences & night spots",
   },
-
   Museums: {
-    icon: "🖼️",
-    description:
-      "Museums, galleries & cultural experiences",
+    icon: "🏛️",
+    description: "Museums, galleries & cultural experiences",
   },
-
   Nature: {
     icon: "🌿",
-    description:
-      "Parks, gardens & natural escapes",
+    description: "Parks, gardens & natural escapes",
   },
-
   Shopping: {
-    icon: "🛍️",
-    description:
-      "Markets, stores & shopping districts",
+    icon: "🛒",
+    description: "Markets, stores & shopping districts",
   },
-
   Adventure: {
-    icon: "🧗",
-    description:
-      "Outdoor activities & adventures",
+    icon: "🏄",
+    description: "Outdoor activities & adventures",
   },
 };
 
@@ -67,88 +48,92 @@ const CATEGORY_MAP = {
   adventure: "Adventure",
 };
 
+const WIKIMEDIA_API =
+  "https://commons.wikimedia.org/w/api.php";
+
 function formatInterest(value) {
   if (!value) return "Other";
 
-  const normalized = String(value)
-    .trim()
-    .toLowerCase();
+  const normalized = String(value).trim().toLowerCase();
 
   return (
     CATEGORY_MAP[normalized] ||
     String(value)
       .trim()
       .replace(/_/g, " ")
-      .replace(/\b\w/g, (c) => c.toUpperCase())
+      .replace(/\b\w/g, (character) =>
+        character.toUpperCase()
+      )
   );
 }
 
-/*
- * ============================================================
- * GET ALL INTERESTS ASSOCIATED WITH A PLACE
- * ============================================================
- *
- * The backend can now return:
- *
- * interest: "Architecture"
- * interest_tags: ["Architecture", "History"]
- *
- * So the same physical place can correctly appear under
- * both Architecture and History.
- *
- * If interest_tags doesn't exist, we fall back to the
- * original interest fields so older API responses still work.
- */
-function getPlaceInterests(place) {
-  const interests = [];
-
-  if (Array.isArray(place?.interest_tags)) {
-    place.interest_tags.forEach((interest) => {
-      const formatted = formatInterest(interest);
-
-      if (
-        formatted &&
-        formatted !== "Other" &&
-        !interests.includes(formatted)
-      ) {
-        interests.push(formatted);
-      }
-    });
-  }
-
-  const fallbackInterest =
-    place?.interest ||
-    place?.interest_category ||
-    place?.interestCategory;
-
-  if (fallbackInterest) {
-    const formatted = formatInterest(fallbackInterest);
-
-    if (
-      formatted &&
-      formatted !== "Other" &&
-      !interests.includes(formatted)
-    ) {
-      interests.push(formatted);
+function getCategoryMeta(category) {
+  return (
+    CATEGORY_META[category] || {
+      icon: "📍",
+      description: "Interesting places worth discovering",
     }
-  }
-
-  /*
-   * If somehow no interest exists, keep the old
-   * "Other" behaviour.
-   */
-  if (interests.length === 0) {
-    interests.push("Other");
-  }
-
-  return interests;
+  );
 }
 
+async function searchWikimediaImage(searchText) {
+  try {
+    const params = new URLSearchParams({
+      action: "query",
+      generator: "search",
+      gsrsearch: searchText,
+      gsrnamespace: "6",
+      gsrlimit: "5",
+      prop: "imageinfo",
+      iiprop: "url|descriptionurl",
+      iiurlwidth: "1000",
+      format: "json",
+      origin: "*",
+    });
+
+    const response = await fetch(
+      `${WIKIMEDIA_API}?${params.toString()}`
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+
+    const pages = Object.values(
+      data?.query?.pages || {}
+    );
+
+    const page = pages.find(
+      (item) =>
+        item?.imageinfo?.[0]?.thumburl ||
+        item?.imageinfo?.[0]?.url
+    );
+
+    if (!page) {
+      return null;
+    }
+
+    const info = page.imageinfo[0];
+
+    return {
+      url: info.thumburl || info.url,
+      sourceUrl: info.descriptionurl || null,
+    };
+  } catch {
+    return null;
+  }
+}
 
 function openGoogleMaps(place, destinationName) {
+  if (!place) return;
+
   const query = [
     place?.name,
     place?.address,
+    place?.street,
+    place?.city,
     destinationName,
   ]
     .filter(Boolean)
@@ -156,17 +141,21 @@ function openGoogleMaps(place, destinationName) {
 
   if (!query) return;
 
+  const url =
+    "https://www.google.com/maps/search/?api=1&query=" +
+    encodeURIComponent(query);
+
   window.open(
-    `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-      query
-    )}`,
+    url,
     "_blank",
     "noopener,noreferrer"
   );
 }
 
 function formatWeather(weather) {
-  if (!weather) return null;
+  if (!weather) {
+    return null;
+  }
 
   const current = weather.current || weather;
 
@@ -207,140 +196,64 @@ function formatWeather(weather) {
   };
 }
 
-function DestinationDashboard({ result, onBack }) {
-  /*
-   * ============================================================
-   * REFRESH PAGE -> ALWAYS START FROM THE TOP
-   * ============================================================
-   */
-  useLayoutEffect(() => {
-    const html = document.documentElement;
-    const body = document.body;
+function DestinationDashboard({
+  result,
+  onBack,
+  onSaveJourney,
+  journeySaved,
+  journeySaving,
+  onToggleFavorite,
+  favoriteSaving,
+  isFavorite,
+}) {
+  const [expandedCategories, setExpandedCategories] =
+    useState({});
 
-    const previousScrollRestoration =
-      window.history.scrollRestoration;
+  const [heroImage, setHeroImage] =
+    useState(null);
 
-    const previousScrollBehavior =
-      html.style.scrollBehavior;
+useLayoutEffect(() => {
+  window.history.scrollRestoration = "manual";
 
-    /*
-     * Prevent the browser from restoring the old scroll
-     * position.
-     */
-    if ("scrollRestoration" in window.history) {
-      window.history.scrollRestoration = "manual";
-    }
+  window.scrollTo({
+    top: 0,
+    left: 0,
+    behavior: "auto",
+  });
 
-    /*
-     * Disable smooth scrolling while forcing the page
-     * to the top.
-     */
-    html.style.scrollBehavior = "auto";
+  return () => {
+    window.history.scrollRestoration = "auto";
+  };
+}, []);
 
-    const forceTop = () => {
-      window.scrollTo({
-        top: 0,
-        left: 0,
-        behavior: "auto",
-      });
 
-      html.scrollTop = 0;
-      body.scrollTop = 0;
-    };
-
-    /*
-     * Immediately move to the top.
-     */
-    forceTop();
-
-    /*
-     * Force again after React/browser rendering.
-     */
-    const frame1 = requestAnimationFrame(() => {
-      forceTop();
-
-      requestAnimationFrame(() => {
-        forceTop();
-      });
-    });
-
-    /*
-     * Handle delayed content and browser restoration.
-     */
-    const timeout1 = window.setTimeout(
-      forceTop,
-      50
-    );
-
-    const timeout2 = window.setTimeout(
-      forceTop,
-      150
-    );
-
-    const timeout3 = window.setTimeout(
-      forceTop,
-      400
-    );
-
-    /*
-     * Important for browser back-forward cache / pageshow.
-     */
-    const handlePageShow = () => {
-      forceTop();
-    };
-
-    window.addEventListener(
-      "pageshow",
-      handlePageShow
-    );
-
-    return () => {
-      cancelAnimationFrame(frame1);
-
-      clearTimeout(timeout1);
-      clearTimeout(timeout2);
-      clearTimeout(timeout3);
-
-      window.removeEventListener(
-        "pageshow",
-        handlePageShow
-      );
-
-      html.style.scrollBehavior =
-        previousScrollBehavior;
-
-      if ("scrollRestoration" in window.history) {
-        window.history.scrollRestoration =
-          previousScrollRestoration;
-      }
-    };
-  }, []);
-
-  const [
-    expandedCategories,
-    setExpandedCategories,
-  ] = useState({});
 
   const destination = result?.destination || {};
 
-  const weather = formatWeather(result?.weather);
+  const weather = formatWeather(
+    result?.weather
+  );
 
-
- const rawPlaces = useMemo(() => {
   const placesData = result?.places;
 
-  if (Array.isArray(placesData)) {
-    return placesData;
-  }
+  const rawPlaces = useMemo(() => {
+    if (Array.isArray(placesData)) {
+      return placesData;
+    }
 
-  return placesData?.places || [];
-}, [result?.places]);
+    if (Array.isArray(placesData?.places)) {
+      return placesData.places;
+    }
 
-  const itineraryData = result?.itinerary || {};
-  
-  const distanceData = result?.distance || {};
+    return [];
+  }, [placesData]);
+
+  const itineraryData =
+    result?.itinerary || {};
+
   const itinerary =
-    itineraryData.itinerary || itineraryData;
+    itineraryData?.itinerary ||
+    itineraryData;
 
   const days = Array.isArray(itinerary?.days)
     ? itinerary.days
@@ -366,10 +279,13 @@ function DestinationDashboard({ result, onBack }) {
   const destinationName =
     destination.name ||
     destination.city ||
+    destination.display_name ||
     trip.destination ||
     "Your Destination";
 
-  const destinationDisplay = destinationName
+  const destinationDisplay = String(
+    destinationName
+  )
     .replace(/\s+/g, " ")
     .trim();
 
@@ -378,244 +294,404 @@ function DestinationDashboard({ result, onBack }) {
     destination.address?.country ||
     "";
 
+
   /*
-   * ============================================================
-   * GROUP PLACES BY ALL THEIR INTEREST TAGS
-   * ============================================================
+   * HERO IMAGE ONLY
    *
-   * OLD:
-   *
-   * place -> one category
-   *
-   * NEW:
-   *
-   * place -> multiple categories when applicable
-   *
-   * Example:
-   *
-   * Louvre
-   *   -> Museums
-   *   -> History
-   *   -> Architecture
-   *
-   * This fixes the missing History category.
+   * Place cards intentionally do not load
+   * external images.
    */
-  const groupedPlaces = useMemo(() => {
-    const groups = {};
+  useEffect(() => {
+    let cancelled = false;
 
-    rawPlaces.forEach((place) => {
-      const interests =
-        getPlaceInterests(place);
+    async function loadHeroImage() {
+      const hero = await searchWikimediaImage(
+        `"${destinationDisplay}"`
+      );
 
-      interests.forEach((category) => {
-        if (!groups[category]) {
-          groups[category] = [];
-        }
+      if (!cancelled && hero?.url) {
+        setHeroImage(hero.url);
+      }
+    }
 
-        /*
-         * Prevent the exact same place from being added
-         * twice to the same category.
-         */
-        const alreadyExists = groups[
-          category
-        ].some((existingPlace) => {
-          const existingKey = [
-            existingPlace?.name,
-            existingPlace?.latitude ??
-              existingPlace?.lat,
-            existingPlace?.longitude ??
-              existingPlace?.lon ??
-              existingPlace?.lng,
-          ]
-            .filter(Boolean)
-            .join("|");
+    loadHeroImage();
 
-          const currentKey = [
-            place?.name,
-            place?.latitude ??
-              place?.lat,
-            place?.longitude ??
-              place?.lon ??
-              place?.lng,
-          ]
-            .filter(Boolean)
-            .join("|");
+    return () => {
+      cancelled = true;
+    };
+  }, [destinationDisplay]);
 
-          return (
-            existingKey === currentKey
-          );
-        });
+const groupedPlaces = useMemo(() => {
+  const groups = {};
 
-        if (!alreadyExists) {
-          groups[category].push(place);
-        }
-      });
+  // ========================================================
+  // CANONICAL INTEREST ORDER
+  // ========================================================
+
+  const interestOrder = [
+    "Architecture",
+    "History",
+    "Food",
+    "Nightlife",
+    "Museums",
+    "Nature",
+    "Shopping",
+    "Adventure",
+  ];
+
+  // ========================================================
+  // CATEGORY NORMALIZATION
+  // ========================================================
+
+  const categoryMap = {
+    architecture: "Architecture",
+    history: "History",
+    food: "Food",
+    nightlife: "Nightlife",
+    nature: "Nature",
+    museum: "Museums",
+    museums: "Museums",
+    shopping: "Shopping",
+    adventure: "Adventure",
+  };
+
+  // ========================================================
+  // INITIALIZE ALL INTEREST GROUPS
+  //
+  // This is important.
+  // Even if one interest temporarily has no places,
+  // the category still exists in the dashboard.
+  // ========================================================
+
+  interestOrder.forEach((interest) => {
+    groups[interest] = [];
+  });
+
+  // ========================================================
+  // GROUP PLACES USING interest_tags
+  //
+  // A physical place can belong to multiple interests.
+  //
+  // Example:
+  //
+  // Louvre
+  // → Architecture
+  // → History
+  // → Museums
+  //
+  // The same physical place is therefore displayed in
+  // all relevant interest sections.
+  // ========================================================
+
+  rawPlaces.forEach((place) => {
+    if (!place || typeof place !== "object") {
+      return;
+    }
+
+    // ------------------------------------------------------
+    // PRIMARY / LEGACY CATEGORY
+    // ------------------------------------------------------
+
+    const primaryCategory =
+      place.interest_category ||
+      place.interestCategory ||
+      place.interest ||
+      null;
+
+    // ------------------------------------------------------
+    // MULTI-INTEREST TAGS
+    // ------------------------------------------------------
+
+    const rawTags = Array.isArray(place.interest_tags)
+      ? place.interest_tags
+      : [];
+
+    const categoriesForPlace = [];
+
+    // ------------------------------------------------------
+    // ADD ALL interest_tags
+    // ------------------------------------------------------
+
+    rawTags.forEach((tag) => {
+      if (!tag) {
+        return;
+      }
+
+      const normalized = String(tag)
+        .trim()
+        .toLowerCase();
+
+      const category =
+        categoryMap[normalized] || null;
+
+      if (
+        category &&
+        !categoriesForPlace.includes(category)
+      ) {
+        categoriesForPlace.push(category);
+      }
     });
 
-    return groups;
-  }, [rawPlaces]);
+    // ------------------------------------------------------
+    // ALSO ADD PRIMARY CATEGORY
+    //
+    // Protects compatibility with older API responses.
+    // ------------------------------------------------------
 
-  /*
-   * ============================================================
-   * CATEGORY ORDER
-   * ============================================================
-   *
-   * Keep the order selected by the user.
-   *
-   * Backend:
-   * museums
-   * architecture
-   * history
-   * nature
-   * food
-   * shopping
-   * nightlife
-   * adventure
-   *
-   * Frontend will now follow the same order.
-   */
-  const categories = useMemo(() => {
-    const selectedCategories =
-      Array.isArray(trip.interests)
-        ? trip.interests.map(formatInterest)
-        : [];
+    if (primaryCategory) {
+      const normalizedPrimary = String(primaryCategory)
+        .trim()
+        .toLowerCase();
 
-    const existingCategories =
-      Object.keys(groupedPlaces);
+      const category =
+        categoryMap[normalizedPrimary] ||
+        String(primaryCategory).trim();
 
-    const ordered = [];
-
-    /*
-     * First add categories selected by user.
-     */
-    selectedCategories.forEach(
-      (category) => {
-        if (
-          groupedPlaces[category] &&
-          !ordered.includes(category)
-        ) {
-          ordered.push(category);
-        }
+      if (
+        category &&
+        !categoriesForPlace.includes(category)
+      ) {
+        categoriesForPlace.push(category);
       }
-    );
+    }
 
-    /*
-     * Then add any additional categories that
-     * may have come from the API.
-     */
-    existingCategories.forEach(
-      (category) => {
-        if (!ordered.includes(category)) {
-          ordered.push(category);
-        }
+    // ------------------------------------------------------
+    // FALLBACK
+    // ------------------------------------------------------
+
+    if (categoriesForPlace.length === 0) {
+      const fallbackCategory =
+        place.category
+          ? String(place.category).trim()
+          : "Other";
+
+      if (!groups[fallbackCategory]) {
+        groups[fallbackCategory] = [];
       }
+
+      groups[fallbackCategory].push(place);
+
+      return;
+    }
+
+    // ------------------------------------------------------
+    // ADD PLACE TO EVERY RELEVANT INTEREST
+    // ------------------------------------------------------
+
+    categoriesForPlace.forEach((category) => {
+      if (!groups[category]) {
+        groups[category] = [];
+      }
+
+      groups[category].push(place);
+    });
+  });
+
+  // ========================================================
+  // REMOVE EMPTY INTEREST GROUPS
+  //
+  // We don't want empty sections such as History: 0.
+  // ========================================================
+
+  interestOrder.forEach((interest) => {
+    if (
+      !groups[interest] ||
+      groups[interest].length === 0
+    ) {
+      delete groups[interest];
+    }
+  });
+
+  // ========================================================
+  // PRESERVE CANONICAL INTEREST ORDER
+  // ========================================================
+
+  const orderedGroups = {};
+
+  interestOrder.forEach((interest) => {
+    if (groups[interest]?.length) {
+      orderedGroups[interest] = groups[interest];
+    }
+  });
+
+  // ========================================================
+  // KEEP ANY UNEXPECTED / LEGACY CATEGORIES
+  // ========================================================
+
+  Object.keys(groups).forEach((category) => {
+    if (!orderedGroups[category]) {
+      orderedGroups[category] = groups[category];
+    }
+  });
+
+  return orderedGroups;
+}, [rawPlaces]);
+
+  const categories =
+    Object.keys(groupedPlaces);
+
+  const totalPlaces =
+    rawPlaces.length;
+
+  const totalActivities =
+    days.reduce(
+      (total, day) =>
+        total +
+        (Array.isArray(day.activities)
+          ? day.activities.length
+          : 0),
+      0
     );
-
-    return ordered;
-  }, [groupedPlaces, trip.interests]);
-
-  const totalPlaces = rawPlaces.length;
-
-  const totalActivities = days.reduce(
-    (total, day) =>
-      total +
-      (Array.isArray(day.activities)
-        ? day.activities.length
-        : 0),
-    0
-  );
 
   const budget =
-    itinerary?.budget_plan?.total_budget ??
-    trip.budget ??
+    itinerary?.budget_plan
+      ?.total_budget ??
+    trip?.budget ??
     "--";
 
   const currency =
     itinerary?.budget_plan?.currency ||
-    trip.currency ||
+    trip?.currency ||
     "INR";
 
   const duration =
-    itinerary?.trip_summary?.duration_days ??
-    trip.days ??
-    days.length ??
-    "--";
+    itinerary?.trip_summary
+      ?.duration_days ??
+    trip?.days ??
+    (days.length || "--");
 
-  const getVisiblePlaces = (category) => {
-    return expandedCategories[category]
-      ? groupedPlaces[category] || []
-      : (groupedPlaces[category] || []).slice(
-          0,
-          6
-        );
+  const getVisiblePlaces = (
+    category
+  ) => {
+    const places =
+      groupedPlaces[category] || [];
+
+    if (
+      expandedCategories[category]
+    ) {
+      return places;
+    }
+
+    return places.slice(0, 6);
   };
 
-  const toggleCategory = (category) => {
-    setExpandedCategories((previous) => ({
-      ...previous,
-      [category]: !previous[category],
-    }));
+  const toggleCategory = (
+    category
+  ) => {
+    setExpandedCategories(
+      (previous) => ({
+        ...previous,
+        [category]:
+          !previous[category],
+      })
+    );
   };
 
   return (
     <main className="destination-dashboard">
-      {/* ======================================================
+      {/* =====================================================
           NAVIGATION
-          ====================================================== */}
+      ===================================================== */}
 
       <nav className="dashboard-nav">
         <div className="dashboard-container dashboard-nav-inner">
           <button
+            type="button"
             className="back-button"
             onClick={onBack}
           >
-            <span>←</span>
-            <span>Back to Home</span>
+            <span className="back-arrow">
+              ←
+            </span>
+
+            <span>
+              BACK TO HOME
+            </span>
           </button>
 
           <div className="dashboard-brand">
             <div className="dashboard-brand-mark">
-              ✦
+              V
             </div>
 
-            <div>
-              <strong>VoyageMind</strong>
+            <div className="dashboard-brand-copy">
+              <strong>
+                VoyageMind
+              </strong>
+
               <span>
-                AI TRAVEL INTELLIGENCE
+                INTELLIGENT TRAVEL
               </span>
             </div>
           </div>
 
-          <div className="dashboard-live">
-            <span />
-            JOURNEY READY
-          </div>
+          <div className="dashboard-nav-right">
+            <div className="dashboard-live">
+              <span className="live-dot" />
+
+              <span>
+                JOURNEY READY
+              </span>
+            </div>
+         </div>
         </div>
       </nav>
 
+      {/* =====================================================
+          MAIN CONTENT
+      ===================================================== */}
+
       <div className="dashboard-container">
-        {/* ======================================================
+        {/* ===================================================
             DESTINATION HERO
-            ====================================================== */}
+        =================================================== */}
 
         <section className="destination-hero">
-          <div className="destination-hero-background" />
+          <div className="destination-hero-grid" />
+
+          <div className="destination-hero-glow" />
+
+          {heroImage && (
+            <div
+              className="destination-hero-background"
+              style={{
+                backgroundImage: `linear-gradient(
+                  180deg,
+                  rgba(11, 12, 14, 0.1),
+                  rgba(11, 12, 14, 0.9)
+                ), url("${heroImage}")`,
+              }}
+            />
+          )}
 
           <div className="destination-hero-content">
             <div className="destination-breadcrumb">
-              <span>VOYAGEMIND</span>
-              <i>/</i>
-              <span>YOUR JOURNEY</span>
+              <span>
+                VOYAGEMIND
+              </span>
+
+              <i>
+                /
+              </i>
+
+              <span>
+                YOUR JOURNEY
+              </span>
             </div>
 
             <div className="destination-title-row">
-              <div>
+              <div className="destination-title-copy">
                 <div className="destination-eyebrow">
-                  <span>✦</span>
+                  <span>
+                    ✦
+                  </span>
+
                   YOUR PERSONALIZED ESCAPE
                 </div>
 
-                <h1>{destinationDisplay}</h1>
+                <h1>
+                  {destinationDisplay}
+                </h1>
 
                 {country && (
                   <div className="destination-country">
@@ -625,9 +701,10 @@ function DestinationDashboard({ result, onBack }) {
 
                 <p>
                   Your AI-powered travel
-                  intelligence is ready. Explore
-                  verified places, live conditions
-                  and a personalized itinerary
+                  intelligence is ready.
+                  Explore verified places,
+                  live conditions and a
+                  personalized itinerary
                   built around you.
                 </p>
               </div>
@@ -638,18 +715,27 @@ function DestinationDashboard({ result, onBack }) {
                 </div>
 
                 <div>
-                  <span>AI JOURNEY</span>
-                  <strong>READY</strong>
+                  <span>
+                    AI JOURNEY
+                  </span>
+
+                  <strong>
+                    READY
+                  </strong>
                 </div>
               </div>
             </div>
 
             <div className="hero-stats">
               <div className="hero-stat">
-                <span>◷</span>
+                <span className="hero-stat-icon">
+                  ◷
+                </span>
 
                 <div>
-                  <small>DURATION</small>
+                  <small>
+                    DURATION
+                  </small>
 
                   <strong>
                     {duration}{" "}
@@ -661,19 +747,31 @@ function DestinationDashboard({ result, onBack }) {
               </div>
 
               <div className="hero-stat">
-                <span>✦</span>
+                <span className="hero-stat-icon">
+                  ✦
+                </span>
 
                 <div>
-                  <small>PLACES FOUND</small>
-                  <strong>{totalPlaces}</strong>
+                  <small>
+                    PLACES FOUND
+                  </small>
+
+                  <strong>
+                    {totalPlaces}
+                  </strong>
                 </div>
               </div>
 
               <div className="hero-stat">
-                <span>◎</span>
+                <span className="hero-stat-icon">
+                  ◎
+                </span>
 
                 <div>
-                  <small>AI ACTIVITIES</small>
+                  <small>
+                    AI ACTIVITIES
+                  </small>
+
                   <strong>
                     {totalActivities}
                   </strong>
@@ -681,10 +779,14 @@ function DestinationDashboard({ result, onBack }) {
               </div>
 
               <div className="hero-stat">
-                <span>◈</span>
+                <span className="hero-stat-icon">
+                  ◈
+                </span>
 
                 <div>
-                  <small>TRAVEL STYLE</small>
+                  <small>
+                    TRAVEL STYLE
+                  </small>
 
                   <strong>
                     {itinerary?.trip_summary
@@ -697,14 +799,79 @@ function DestinationDashboard({ result, onBack }) {
           </div>
         </section>
 
-        {/* ======================================================
+        {/* ===================================================
+            JOURNEY ACTIONS
+        =================================================== */}
+
+        <div className="journey-action-bar">
+<button
+  type="button"
+  className={`journey-save-button ${
+    journeySaved
+      ? "saved"
+      : ""
+  }`}
+  onClick={onSaveJourney}
+  disabled={journeySaving}
+>
+  <span>
+    {journeySaved
+      ? "✓"
+      : "♡"}
+  </span>
+
+  <span>
+    {journeySaving
+      ? "UPDATING..."
+      : journeySaved
+      ? "JOURNEY SAVED"
+      : "SAVE JOURNEY"}
+  </span>
+</button>
+
+          <button
+            type="button"
+            className={`journey-favorite-button ${
+              isFavorite
+                ? "saved"
+                : ""
+            }`}
+            onClick={
+              onToggleFavorite
+            }
+            disabled={
+              favoriteSaving 
+            }
+          >
+            <span>
+              {isFavorite
+                ? "♥"
+                : "♡"}
+            </span>
+
+            <span>
+              {favoriteSaving
+                ? "UPDATING..."
+                : isFavorite
+                ? "FAVORITED"
+                : "ADD TO FAVORITES"}
+            </span>
+          </button>
+        </div>
+
+        {/* ===================================================
             OVERVIEW
-            ====================================================== */}
+        =================================================== */}
 
         <section className="overview-grid">
+          {/* WEATHER */}
+
           <article className="overview-card weather-card">
             <div className="card-topline">
-              <span>LIVE CONDITIONS</span>
+              <span>
+                LIVE CONDITIONS
+              </span>
+
               <span className="card-dot" />
             </div>
 
@@ -732,7 +899,9 @@ function DestinationDashboard({ result, onBack }) {
 
                 <div className="weather-details">
                   <div>
-                    <small>FEELS LIKE</small>
+                    <small>
+                      FEELS LIKE
+                    </small>
 
                     <strong>
                       {weather.feelsLike}
@@ -744,18 +913,23 @@ function DestinationDashboard({ result, onBack }) {
                   </div>
 
                   <div>
-                    <small>WIND</small>
+                    <small>
+                      WIND
+                    </small>
 
                     <strong>
                       {weather.wind}
-                      {weather.wind !== "--"
+                      {weather.wind !==
+                      "--"
                         ? " km/h"
                         : ""}
                     </strong>
                   </div>
 
                   <div>
-                    <small>HUMIDITY</small>
+                    <small>
+                      HUMIDITY
+                    </small>
 
                     <strong>
                       {weather.humidity}
@@ -774,18 +948,28 @@ function DestinationDashboard({ result, onBack }) {
             )}
           </article>
 
+          {/* BUDGET */}
+
           <article className="overview-card budget-card">
             <div className="card-topline">
-              <span>TRIP BUDGET</span>
-              <span>◈</span>
+              <span>
+                TRIP BUDGET
+              </span>
+
+              <span>
+                ◈
+              </span>
             </div>
 
             <div className="budget-main">
-              <small>PLANNED SPEND</small>
+              <small>
+                PLANNED SPEND
+              </small>
 
               <strong>
                 {currency}{" "}
-                {typeof budget === "number"
+                {typeof budget ===
+                "number"
                   ? budget.toLocaleString()
                   : budget}
               </strong>
@@ -794,7 +978,8 @@ function DestinationDashboard({ result, onBack }) {
                 {itinerary?.budget_plan
                   ?.estimated_daily_budget
                   ? `${currency} ${Number(
-                      itinerary.budget_plan
+                      itinerary
+                        .budget_plan
                         .estimated_daily_budget
                     ).toLocaleString()} / day`
                   : "Personalized around your selected budget"}
@@ -806,15 +991,23 @@ function DestinationDashboard({ result, onBack }) {
             </div>
 
             <p>
-              {itinerary?.budget_plan?.notes ||
+              {itinerary?.budget_plan
+                ?.notes ||
                 "Your itinerary has been planned around your selected budget."}
             </p>
           </article>
 
+          {/* LOCATION */}
+
           <article className="overview-card location-card">
             <div className="card-topline">
-              <span>DESTINATION</span>
-              <span>⌖</span>
+              <span>
+                DESTINATION
+              </span>
+
+              <span>
+                ⌖
+              </span>
             </div>
 
             <div className="location-main">
@@ -834,15 +1027,20 @@ function DestinationDashboard({ result, onBack }) {
                     null
                     ? `${Number(
                         coordinates.latitude
-                      ).toFixed(4)}°, ${Number(
+                      ).toFixed(
+                        4
+                      )}°, ${Number(
                         coordinates.longitude
-                      ).toFixed(4)}°`
+                      ).toFixed(
+                        4
+                      )}°`
                     : "Location verified"}
                 </span>
               </div>
             </div>
 
             <button
+              type="button"
               className="map-button"
               onClick={() =>
                 openGoogleMaps(
@@ -856,55 +1054,17 @@ function DestinationDashboard({ result, onBack }) {
               <span>
                 Explore on Google Maps
               </span>
-              <span>↗</span>
+
+              <span>
+                ↗
+              </span>
             </button>
           </article>
-        </section><br/>
+        </section>
 
-<article className="overview-card distance-card">
-  <div className="card-topline">
-    <span>TRAVEL DISTANCE</span>
-    <span>🚶</span>
-  </div>
-
-  <div className="distance-main">
-    <small>TOTAL JOURNEY DISTANCE</small>
-
-    <strong>
-      {distanceData?.success &&
-      distanceData?.total_distance
-        ? distanceData.total_distance
-        : "--"}
-    </strong>
-
-    <span>
-      {distanceData?.success &&
-      distanceData?.total_travel_time
-        ? `${distanceData.total_travel_time} ${
-            distanceData.mode === "walk"
-              ? "walking"
-              : "travel"
-          }`
-        : "Route information unavailable"}
-    </span>
-  </div>
-
-  {distanceData?.success &&
-    distanceData?.route_count != null && (
-      <div className="distance-route-summary">
-        <span>
-          {distanceData.route_count} route
-          {distanceData.route_count !== 1
-            ? "s"
-            : ""}{" "}
-          calculated
-        </span>
-      </div>
-    )}
-</article>
-        {/* ======================================================
+        {/* ===================================================
             AI SUMMARY
-            ====================================================== */}
+        =================================================== */}
 
         {itinerary?.trip_summary && (
           <section className="ai-summary-section">
@@ -915,27 +1075,38 @@ function DestinationDashboard({ result, onBack }) {
                 </span>
 
                 <h2>
-                  Your journey, understood.
+                  Your journey,
+                  <span>
+                    {" "}
+                    understood.
+                  </span>
                 </h2>
 
                 <p>
-                  A clear overview of what your
-                  trip is designed to feel like.
+                  A clear overview of what
+                  your trip is designed to
+                  feel like.
                 </p>
               </div>
 
               <div className="ai-badge">
-                <span>✦</span>
+                <span>
+                  ✦
+                </span>
+
                 AI GENERATED
               </div>
             </div>
 
             <div className="ai-summary-card">
               <div className="summary-quote">
-                <span>“</span>
+                <span className="quote-mark">
+                  “
+                </span>
 
                 <p>
-                  {itinerary.trip_summary
+                  {itinerary
+                    .trip_summary
                     .weather_summary ||
                     `A personalized ${duration}-day experience in ${destinationDisplay}.`}
                 </p>
@@ -947,25 +1118,34 @@ function DestinationDashboard({ result, onBack }) {
 
               <div className="summary-meta">
                 <div>
-                  <small>STYLE</small>
+                  <small>
+                    STYLE
+                  </small>
 
                   <strong>
-                    {itinerary.trip_summary
+                    {itinerary
+                      .trip_summary
                       .travel_style ||
                       "Personalized"}
                   </strong>
                 </div>
 
                 <div>
-                  <small>INTERESTS</small>
+                  <small>
+                    INTERESTS
+                  </small>
 
                   <strong>
                     {Array.isArray(
                       trip.interests
                     )
                       ? trip.interests
-                          .map(formatInterest)
-                          .join(" · ")
+                          .map(
+                            formatInterest
+                          )
+                          .join(
+                            " · "
+                          )
                       : "Curated for you"}
                   </strong>
                 </div>
@@ -974,9 +1154,9 @@ function DestinationDashboard({ result, onBack }) {
           </section>
         )}
 
-        {/* ======================================================
+        {/* ===================================================
             AI ITINERARY
-            ====================================================== */}
+        =================================================== */}
 
         {days.length > 0 && (
           <section className="itinerary-section">
@@ -987,13 +1167,18 @@ function DestinationDashboard({ result, onBack }) {
                 </span>
 
                 <h2>
-                  Days worth remembering.
+                  Days worth
+                  <span>
+                    {" "}
+                    remembering.
+                  </span>
                 </h2>
 
                 <p>
-                  Your schedule is organized
-                  around time, places, interests
-                  and practical pacing.
+                  Your schedule is
+                  organized around time,
+                  places, interests and
+                  practical pacing.
                 </p>
               </div>
 
@@ -1003,135 +1188,155 @@ function DestinationDashboard({ result, onBack }) {
             </div>
 
             <div className="itinerary-timeline">
-              {days.map((day, index) => (
-                <article
-                  className="day-card"
-                  key={`day-${day.day || index}`}
-                >
-                  <div className="day-number">
-                    <span>DAY</span>
-
-                    <strong>
-                      {String(
-                        day.day || index + 1
-                      ).padStart(2, "0")}
-                    </strong>
-                  </div>
-
-                  <div className="day-content">
-                    <div className="day-header">
-                      <div>
-                        <span className="day-label">
-                          {day.theme ||
-                            "Explore & Discover"}
-                        </span>
-
-                        <h3>
-                          Day{" "}
-                          {day.day || index + 1}
-                        </h3>
-                      </div>
-
-                      <span className="activity-count">
-                        {Array.isArray(
-                          day.activities
-                        )
-                          ? `${day.activities.length} ${
-                              day.activities
-                                .length === 1
-                                ? "experience"
-                                : "experiences"
-                            }`
-                          : "Curated day"}
+              {days.map(
+                (day, index) => (
+                  <article
+                    className="day-card"
+                    key={`day-${
+                      day.day ||
+                      index
+                    }`}
+                  >
+                    <div className="day-number">
+                      <span>
+                        DAY
                       </span>
+
+                      <strong>
+                        {String(
+                          day.day ||
+                            index +
+                              1
+                        ).padStart(
+                          2,
+                          "0"
+                        )}
+                      </strong>
                     </div>
 
-                    <div className="activities-list">
-                      {Array.isArray(
-                        day.activities
-                      ) &&
-                        day.activities.map(
-                          (
-                            activity,
-                            activityIndex
-                          ) => (
-                            <div
-                              className="activity-row"
-                              key={`${activity.place}-${activityIndex}`}
-                            >
-                              <div className="activity-time">
-                                {activity.time ||
-                                  "Anytime"}
-                              </div>
+                    <div className="day-content">
+                      <div className="day-header">
+                        <div>
+                          <span className="day-label">
+                            {day.theme ||
+                              "Explore & Discover"}
+                          </span>
 
-                              <div className="activity-line">
-                                <span />
-                              </div>
+                          <h3>
+                            Day{" "}
+                            {day.day ||
+                              index +
+                                1}
+                          </h3>
+                        </div>
 
-                              <div className="activity-info">
-                                <div className="activity-title">
-                                  <strong>
-                                    {activity.place ||
-                                      "Explore"}
-                                  </strong>
+                        <span className="activity-count">
+                          {Array.isArray(
+                            day.activities
+                          )
+                            ? `${day.activities.length} ${
+                                day
+                                  .activities
+                                  .length ===
+                                1
+                                  ? "experience"
+                                  : "experiences"
+                              }`
+                            : "Curated day"}
+                        </span>
+                      </div>
 
-                                  {activity.category && (
-                                    <span>
-                                      {formatInterest(
-                                        activity.category
-                                      )}
-                                    </span>
+                      <div className="activities-list">
+                        {Array.isArray(
+                          day.activities
+                        ) &&
+                          day.activities.map(
+                            (
+                              activity,
+                              activityIndex
+                            ) => (
+                              <div
+                                className="activity-row"
+                                key={`${activity.place}-${activityIndex}`}
+                              >
+                                <div className="activity-time">
+                                  {activity.time ||
+                                    "Anytime"}
+                                </div>
+
+                                <div className="activity-line">
+                                  <span />
+                                </div>
+
+                                <div className="activity-info">
+                                  <div className="activity-title">
+                                    <strong>
+                                      {activity.place ||
+                                        "Explore"}
+                                    </strong>
+
+                                    {activity.category && (
+                                      <span>
+                                        {formatInterest(
+                                          activity.category
+                                        )}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {activity.reason && (
+                                    <p>
+                                      {
+                                        activity.reason
+                                      }
+                                    </p>
+                                  )}
+
+                                  {activity.notes && (
+                                    <small>
+                                      {
+                                        activity.notes
+                                      }
+                                    </small>
                                   )}
                                 </div>
 
-                                {activity.reason && (
-                                  <p>
+                                {activity.estimated_cost && (
+                                  <div className="activity-cost">
                                     {
-                                      activity.reason
+                                      activity.estimated_cost
                                     }
-                                  </p>
-                                )}
-
-                                {activity.notes && (
-                                  <small>
-                                    {
-                                      activity.notes
-                                    }
-                                  </small>
+                                  </div>
                                 )}
                               </div>
-
-                              {activity.estimated_cost && (
-                                <div className="activity-cost">
-                                  {
-                                    activity.estimated_cost
-                                  }
-                                </div>
-                              )}
-                            </div>
-                          )
-                        )}
-                    </div>
-
-                    {day.daily_tip && (
-                      <div className="daily-tip">
-                        <span>✦</span>
-
-                        <p>
-                          {day.daily_tip}
-                        </p>
+                            )
+                          )}
                       </div>
-                    )}
-                  </div>
-                </article>
-              ))}
+
+                      {day.daily_tip && (
+                        <div className="daily-tip">
+                          <span>
+                            ✦
+                          </span>
+
+                          <p>
+                            {
+                              day.daily_tip
+                            }
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                )
+              )}
             </div>
           </section>
         )}
 
-        {/* ======================================================
+        {/* ===================================================
             PLACES
-            ====================================================== */}
+        =================================================== */}
 
         <section className="places-section">
           <div className="section-heading places-heading">
@@ -1141,19 +1346,29 @@ function DestinationDashboard({ result, onBack }) {
               </span>
 
               <h2>
-                Places Curated for Your Trip
+                Places Curated
+                <span>
+                  {" "}
+                  for Your Trip.
+                </span>
               </h2>
 
               <p>
-                Verified locations organized
-                around the interests you selected
-                for this journey.
+                Verified locations
+                organized around the
+                interests you selected for
+                this journey.
               </p>
             </div>
 
             <div className="places-total">
-              <strong>{totalPlaces}</strong>
-              <span>CURATED PLACES</span>
+              <strong>
+                {totalPlaces}
+              </strong>
+
+              <span>
+                CURATED PLACES
+              </span>
             </div>
           </div>
 
@@ -1168,228 +1383,270 @@ function DestinationDashboard({ result, onBack }) {
               </h3>
 
               <p>
-                Try planning another destination
-                with different interests.
+                Try planning another
+                destination with different
+                interests.
               </p>
             </div>
           ) : (
             <div className="category-list">
-              {categories.map((category) => {
-                const meta =
-                  CATEGORY_META[category] || {
-                    icon: "📍",
-                    description:
-                      "Interesting places worth discovering",
-                  };
+              {categories.map(
+                (category) => {
+                  const meta =
+                    getCategoryMeta(
+                      category
+                    );
 
-                const places =
-                  groupedPlaces[category] || [];
+                  const places =
+                    groupedPlaces[
+                      category
+                    ] || [];
 
-                const visible =
-                  getVisiblePlaces(category);
+                  const visiblePlaces =
+                    getVisiblePlaces(
+                      category
+                    );
 
-                const expanded =
-                  !!expandedCategories[category];
+                  const expanded =
+                    !!expandedCategories[
+                      category
+                    ];
 
-                return (
-                  <section
-                    className="place-category"
-                    key={category}
-                  >
-                    <div className="category-header">
-                      <div className="category-heading-content">
-                        <div className="category-icon">
-                          {meta.icon}
-                        </div>
-
-                        <div>
-                          <div className="category-name-row">
-                            <h3>{category}</h3>
-
-                            <span className="category-count">
-                              {places.length}{" "}
-                              {places.length === 1
-                                ? "PLACE"
-                                : "PLACES"}
-                            </span>
+                  return (
+                    <section
+                      className="place-category"
+                      key={category}
+                    >
+                      <div className="category-header">
+                        <div className="category-heading-content">
+                          <div className="category-icon">
+                            {
+                              meta.icon
+                            }
                           </div>
 
-                          <p>
-                            {meta.description}
-                          </p>
+                          <div>
+                            <div className="category-name-row">
+                              <h3>
+                                {
+                                  category
+                                }
+                              </h3>
+
+                              <span className="category-count">
+                                {
+                                  places.length
+                                }{" "}
+                                {places.length ===
+                                1
+                                  ? "PLACE"
+                                  : "PLACES"}
+                              </span>
+                            </div>
+
+                            <p>
+                              {
+                                meta.description
+                              }
+                            </p>
+                          </div>
                         </div>
+
+                        <div className="category-line" />
                       </div>
 
-                      <div className="category-line" />
-                    </div>
+                      <div className="places-grid">
+                        {visiblePlaces.map(
+                          (
+                            place,
+                            placeIndex
+                          ) => (
+                            <article
+                              className="place-card"
+                              key={`${place.name}-${placeIndex}`}
+                            >
+                              {/* =================================
+                                  FLAT PLACE VISUAL
+                                  No external images.
+                              ================================== */}
 
-                    <div className="places-grid">
-                      {visible.map(
-                        (place, placeIndex) => (
-                          <article
-                            className="place-card"
-                            key={`${category}-${place.name}-${placeIndex}`}
-                          >
-                            <div className="place-visual">
-                              <div className="place-visual-icon">
-                                {meta.icon}
-                              </div>
-
-                              <div className="place-visual-copy">
-                                <span>
-                                  {String(
-                                    placeIndex + 1
-                                  ).padStart(
-                                    2,
-                                    "0"
-                                  )}
-                                </span>
-
-                                <small>
-                                  {category.toUpperCase()}
-                                </small>
-                              </div>
-                            </div>
-
-                            <div className="place-content">
-                              <div className="place-content-top">
-                                <div className="place-name-block">
-                                  <h4>
-                                    {place.name ||
-                                      "Unnamed place"}
-                                  </h4>
-
-                                  <span className="place-subcategory">
-                                    {category}
-                                  </span>
+                              <div className="place-visual place-visual-flat">
+                                <div className="place-visual-icon">
+                                  {
+                                    meta.icon
+                                  }
                                 </div>
 
-                                <span className="place-pin-small">
-                                  ⌖
-                                </span>
-                              </div>
-
-                              {(place.address ||
-                                place.street ||
-                                place.city) && (
-                                <p className="place-address">
-                                  {place.address ||
-                                    [
-                                      place.street,
-                                      place.city,
-                                    ]
-                                      .filter(Boolean)
-                                      .join(
-                                        ", "
-                                      )}
-                                </p>
-                              )}
-
-                              {place.opening_hours && (
-                                <div className="place-hours">
-                                  <span>◷</span>
+                                <div className="place-visual-copy">
                                   <span>
-                                    {
-                                      place.opening_hours
-                                    }
+                                    {String(
+                                      placeIndex +
+                                        1
+                                    ).padStart(
+                                      2,
+                                      "0"
+                                    )}
+                                  </span>
+
+                                  <small>
+                                    {category.toUpperCase()}
+                                  </small>
+                                </div>
+                              </div>
+
+                              <div className="place-content">
+                                <div className="place-content-top">
+                                  <div className="place-name-block">
+                                    <h4>
+                                      {place.name ||
+                                        "Unnamed place"}
+                                    </h4>
+
+                                    <span className="place-subcategory">
+                                      {
+                                        category
+                                      }
+                                    </span>
+                                  </div>
+
+                                  <span className="place-pin-small">
+                                    ⌖
                                   </span>
                                 </div>
-                              )}
 
-                              {(place.rating !=
-                                null ||
-                                place.review_count !=
-                                  null) && (
-                                <div className="place-rating">
-                                  <span>★</span>
+                                {(place.address ||
+                                  place.street ||
+                                  place.city) && (
+                                  <p className="place-address">
+                                    {place.address ||
+                                      [
+                                        place.street,
+                                        place.city,
+                                      ]
+                                        .filter(
+                                          Boolean
+                                        )
+                                        .join(
+                                          ", "
+                                        )}
+                                  </p>
+                                )}
 
-                                  {place.rating !=
-                                    null && (
-                                    <strong>
+                                {place.opening_hours && (
+                                  <div className="place-hours">
+                                    <span>
+                                      ◷
+                                    </span>
+
+                                    <span>
                                       {
-                                        place.rating
+                                        place.opening_hours
                                       }
-                                    </strong>
-                                  )}
+                                    </span>
+                                  </div>
+                                )}
 
-                                  {place.review_count !=
-                                    null && (
-                                    <small>
-                                      {Number(
-                                        place.review_count
-                                      ).toLocaleString()}{" "}
-                                      reviews
-                                    </small>
-                                  )}
-                                </div>
-                              )}
+                                {(place.rating !=
+                                  null ||
+                                  place.review_count !=
+                                    null) && (
+                                  <div className="place-rating">
+                                    <span>
+                                      ★
+                                    </span>
 
-                              <button
-                                className="place-map-button"
-                                onClick={() =>
-                                  openGoogleMaps(
-                                    place,
-                                    destinationDisplay
-                                  )
-                                }
-                              >
-                                <span>
-                                  View on Google Maps
-                                </span>
+                                    {place.rating !=
+                                      null && (
+                                      <strong>
+                                        {
+                                          place.rating
+                                        }
+                                      </strong>
+                                    )}
 
-                                <span className="place-map-arrow">
-                                  ↗
-                                </span>
-                              </button>
-                            </div>
-                          </article>
-                        )
-                      )}
-                    </div>
+                                    {place.review_count !=
+                                      null && (
+                                      <small>
+                                        {Number(
+                                          place.review_count
+                                        ).toLocaleString()}{" "}
+                                        reviews
+                                      </small>
+                                    )}
+                                  </div>
+                                )}
 
-                    {places.length > 6 && (
-                      <button
-                        className="show-more-button"
-                        onClick={() =>
-                          toggleCategory(
-                            category
+                                <button
+                                  type="button"
+                                  className="place-map-button"
+                                  onClick={() =>
+                                    openGoogleMaps(
+                                      place,
+                                      destinationDisplay
+                                    )
+                                  }
+                                >
+                                  <span>
+                                    View on Google Maps
+                                  </span>
+
+                                  <span className="place-map-arrow">
+                                    ↗
+                                  </span>
+                                </button>
+                              </div>
+                            </article>
                           )
-                        }
-                      >
-                        <span>
-                          {expanded
-                            ? "Show fewer places"
-                            : `Show ${
-                                places.length - 6
-                              } more places`}
-                        </span>
+                        )}
+                      </div>
 
-                        <span
-                          className={
-                            expanded
-                              ? "rotate"
-                              : ""
+                      {places.length > 6 && (
+                        <button
+                          type="button"
+                          className="show-more-button"
+                          onClick={() =>
+                            toggleCategory(
+                              category
+                            )
                           }
                         >
-                          ↓
-                        </span>
-                      </button>
-                    )}
-                  </section>
-                );
-              })}
+                          <span>
+                            {expanded
+                              ? "Show fewer places"
+                              : `Show ${
+                                  places.length -
+                                  6
+                                } more places`}
+                          </span>
+
+                          <span
+                            className={
+                              expanded
+                                ? "rotate"
+                                : ""
+                            }
+                          >
+                            ↓
+                          </span>
+                        </button>
+                      )}
+                    </section>
+                  );
+                }
+              )}
             </div>
           )}
         </section>
 
-        {/* ======================================================
+        {/* ===================================================
             TRAVEL TIPS
-            ====================================================== */}
+        =================================================== */}
 
         {Array.isArray(
           itinerary?.travel_tips
         ) &&
-          itinerary.travel_tips.length > 0 && (
+          itinerary.travel_tips.length >
+            0 && (
             <section className="tips-section">
               <div className="section-heading">
                 <div>
@@ -1398,12 +1655,17 @@ function DestinationDashboard({ result, onBack }) {
                   </span>
 
                   <h2>
-                    Travel smarter, not harder.
+                    Travel smarter,
+                    <span>
+                      {" "}
+                      not harder.
+                    </span>
                   </h2>
 
                   <p>
-                    Practical guidance generated
-                    for this specific journey.
+                    Practical guidance
+                    generated for this
+                    specific journey.
                   </p>
                 </div>
               </div>
@@ -1418,10 +1680,15 @@ function DestinationDashboard({ result, onBack }) {
                       <span>
                         {String(
                           index + 1
-                        ).padStart(2, "0")}
+                        ).padStart(
+                          2,
+                          "0"
+                        )}
                       </span>
 
-                      <p>{tip}</p>
+                      <p>
+                        {tip}
+                      </p>
                     </div>
                   )
                 )}
@@ -1429,14 +1696,15 @@ function DestinationDashboard({ result, onBack }) {
             </section>
           )}
 
-        {/* ======================================================
+        {/* ===================================================
             WARNINGS
-            ====================================================== */}
+        =================================================== */}
 
         {Array.isArray(
           itinerary?.warnings
         ) &&
-          itinerary.warnings.length > 0 && (
+          itinerary.warnings.length >
+            0 && (
             <section className="warnings-section">
               <div className="warning-header">
                 <div className="warning-icon">
@@ -1444,7 +1712,9 @@ function DestinationDashboard({ result, onBack }) {
                 </div>
 
                 <div>
-                  <span>TRAVEL NOTES</span>
+                  <span>
+                    TRAVEL NOTES
+                  </span>
 
                   <h3>
                     Keep these in mind
@@ -1454,10 +1724,20 @@ function DestinationDashboard({ result, onBack }) {
 
               <div className="warnings-list">
                 {itinerary.warnings.map(
-                  (warning, index) => (
-                    <div key={index}>
-                      <span>•</span>
-                      <p>{warning}</p>
+                  (
+                    warning,
+                    index
+                  ) => (
+                    <div
+                      key={index}
+                    >
+                      <span>
+                        •
+                      </span>
+
+                      <p>
+                        {warning}
+                      </p>
                     </div>
                   )
                 )}
@@ -1465,20 +1745,24 @@ function DestinationDashboard({ result, onBack }) {
             </section>
           )}
 
-        {/* ======================================================
+        {/* ===================================================
             FOOTER
-            ====================================================== */}
+        =================================================== */}
 
         <footer className="dashboard-footer">
           <div>
             <div className="footer-brand">
-              <span>✦</span>
+              <span>
+                V
+              </span>
+
               VoyageMind
             </div>
 
             <p>
-              Intelligent travel planning,
-              built around you.
+              Intelligent travel
+              planning, built around
+              you.
             </p>
           </div>
 
@@ -1487,7 +1771,9 @@ function DestinationDashboard({ result, onBack }) {
               AI GENERATED JOURNEY
             </span>
 
-            <strong>✦</strong>
+            <strong>
+              ✦
+            </strong>
           </div>
         </footer>
       </div>

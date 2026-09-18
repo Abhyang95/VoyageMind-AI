@@ -888,7 +888,7 @@ select:focus-visible {
   font-size: 13px;
   font-weight: 600;
 
-  color-scheme: dark;
+  
 }
 
 .date-input-wrap input::-webkit-calendar-picker-indicator {
@@ -3894,3 +3894,282 @@ select:focus-visible {
     flex-basis: 32px;
   }
 }
+
+
+/* =========================================================
+   FINAL VOYAGEMIND NAV + CURRENCY FIXES
+   Keeps the original premium visual system.
+========================================================= */
+
+/* The navbar owns a higher stacking context than the hero image. */
+.voyage-page .voyage-nav {
+  position: relative !important;
+  z-index: 1000 !important;
+}
+
+.voyage-page .nav-right {
+  position: relative;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: 24px;
+  min-width: 0;
+}
+
+.voyagemind-account {
+  position: relative;
+  z-index: 1100;
+  flex: 0 0 auto;
+}
+
+.voyagemind-account-trigger,
+.voyagemind-signin-button {
+  min-height: 38px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  padding: 3px 10px 3px 5px !important;
+  border: 1px solid rgba(255,255,255,.13) !important;
+  border-radius: 10px !important;
+  background: rgba(255,255,255,.045) !important;
+  color: rgba(255,255,255,.78) !important;
+  cursor: pointer !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: .9px !important;
+  white-space: nowrap;
+  transition: border-color .18s ease, background .18s ease, color .18s ease, transform .18s ease;
+}
+
+.voyagemind-account-trigger:hover,
+.voyagemind-signin-button:hover {
+  border-color: rgba(255,255,255,.24) !important;
+  background: rgba(255,255,255,.08) !important;
+  color: #fff !important;
+  transform: translateY(-1px);
+}
+
+.voyagemind-account-avatar {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 8px;
+  background: rgba(255,255,255,.075);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.voyagemind-account-avatar.large {
+  width: 38px;
+  height: 38px;
+  flex-basis: 38px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.voyagemind-account-name {
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voyagemind-account-chevron {
+  font-size: 13px;
+  line-height: 1;
+  transition: transform .18s ease;
+}
+
+.voyagemind-account-chevron.open {
+  transform: rotate(180deg);
+}
+
+.voyagemind-account-loading {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 10px;
+  background: rgba(255,255,255,.035);
+}
+
+.voyagemind-account-loading span {
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(255,255,255,.15);
+  border-top-color: rgba(255,255,255,.8);
+  border-radius: 50%;
+  animation: voyagemindAccountSpin .75s linear infinite;
+}
+
+@keyframes voyagemindAccountSpin { to { transform: rotate(360deg); } }
+
+.voyagemind-account-menu {
+  position: absolute !important;
+  top: calc(100% + 10px) !important;
+  right: 0 !important;
+  z-index: 1200 !important;
+  width: 245px;
+  padding: 8px;
+  border: 1px solid rgba(255,255,255,.11);
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(24,26,29,.985), rgba(12,14,16,.99));
+  box-shadow: 0 26px 70px rgba(0,0,0,.52), inset 0 1px 0 rgba(255,255,255,.035);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+
+.voyagemind-account-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+}
+
+.voyagemind-account-details {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.voyagemind-account-details strong,
+.voyagemind-account-details span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voyagemind-account-details strong { color:#fff; font-size:11px; }
+.voyagemind-account-details span { color:rgba(255,255,255,.34); font-size:8px; }
+
+.voyagemind-account-divider {
+  height: 1px;
+  margin: 6px 3px;
+  background: rgba(255,255,255,.07);
+}
+
+.voyagemind-account-item {
+  width: 100% !important;
+  min-height: 37px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 9px !important;
+  padding: 0 9px !important;
+  border: 0 !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  color: rgba(255,255,255,.58) !important;
+  cursor: pointer !important;
+  text-align: left !important;
+  font-size: 9px !important;
+  font-weight: 800 !important;
+  letter-spacing: .8px !important;
+}
+
+.voyagemind-account-item:hover {
+  color: #fff !important;
+  background: rgba(255,255,255,.06) !important;
+}
+
+.voyagemind-account-item.logout { color: rgba(255,170,185,.70) !important; }
+.voyagemind-account-item.logout:hover { background: rgba(255,80,110,.07) !important; }
+
+/* Explicitly defeat native/browser select styling if any old rule remains. */
+.voyage-page .currency-selector {
+  position: relative !important;
+  z-index: 50 !important;
+  flex: 0 0 184px !important;
+  width: 184px !important;
+  min-width: 184px !important;
+}
+
+.voyage-page .budget-box {
+  position: relative !important;
+  overflow: visible !important;
+  isolation: isolate;
+}
+
+.voyage-page .currency-dropdown {
+  position: absolute !important;
+  left: 0 !important;
+  top: calc(100% + 10px) !important;
+  z-index: 99999 !important;
+  width: 306px !important;
+  max-width: min(306px, calc(100vw - 32px)) !important;
+  padding: 7px !important;
+  border: 1px solid rgba(255,255,255,.10) !important;
+  border-radius: 15px !important;
+  background: linear-gradient(145deg, rgba(24,26,29,.985), rgba(12,14,16,.99)) !important;
+  color: rgba(255,255,255,.90) !important;
+  box-shadow: 0 24px 65px rgba(0,0,0,.58), inset 0 1px 0 rgba(255,255,255,.035) !important;
+  backdrop-filter: blur(22px) !important;
+  -webkit-backdrop-filter: blur(22px) !important;
+}
+
+.voyage-page .currency-option {
+  width: 100% !important;
+  display: grid !important;
+  grid-template-columns: 34px 42px minmax(0,1fr) 22px !important;
+  align-items: center !important;
+  min-height: 47px !important;
+  padding: 6px 8px !important;
+  border: 1px solid transparent !important;
+  border-radius: 9px !important;
+  background: transparent !important;
+  color: rgba(255,255,255,.82) !important;
+  cursor: pointer !important;
+  text-align: left !important;
+}
+
+.voyage-page .currency-option:hover,
+.voyage-page .currency-option-selected {
+  border-color: rgba(255,255,255,.08) !important;
+  background: rgba(255,255,255,.055) !important;
+}
+
+.voyage-page .currency-option-symbol,
+.voyage-page .currency-trigger-symbol {
+  color: rgba(255,255,255,.88) !important;
+  background: rgba(255,255,255,.045) !important;
+}
+
+.voyage-page .currency-option-code,
+.voyage-page .currency-option-name,
+.voyage-page .currency-dropdown-title,
+.voyage-page .currency-dropdown-subtitle,
+.voyage-page .currency-dropdown-current {
+  color: inherit;
+}
+
+/* Hand cursor for every interactive element in this planner. */
+.voyage-page button:not(:disabled),
+.voyage-page input[type="date"],
+.voyage-page input[type="number"] {
+  cursor: pointer;
+}
+
+.voyage-page input[type="text"],
+.voyage-page input:not([type]) {
+  cursor: text;
+}
+
+@media (max-width: 900px) {
+  .voyage-page .nav-right { gap: 14px; }
+  .voyagemind-account-name { display: none; }
+}
+
+@media (max-width: 700px) {
+  .voyage-page .nav-right { gap: 9px; }
+  .voyage-page .online-status { display: none; }
+  .voyagemind-account-menu { width: min(245px, calc(100vw - 32px)); }
+}
+
