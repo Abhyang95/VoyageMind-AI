@@ -128,9 +128,10 @@ app.include_router(favorites_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "https://voyage-mind-ai.vercel.app",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://voyage-mind-ai.vercel.app",
+    "https://voyage-mind-ai-cd8x-j09e1prri-abhyang95s-projects.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
