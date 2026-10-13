@@ -181,9 +181,11 @@ Architecture
 History
 Museums
 Nightlife
+```
+
 ---
 
-### Deployment
+## Deployment
 
 VoyageMind AI is deployed as a frontend and backend application.
 
@@ -193,19 +195,21 @@ VoyageMind AI is deployed as a frontend and backend application.
 | Backend API | FastAPI | Render |
 | Database | PostgreSQL | Configured database service |
 
-- **Live Application:** https://voyage-mind-ai-cd8x.vercel.app
-- **Backend API:** https://voyagemind-ai-1.onrender.com
-- **API Documentation:** https://voyagemind-ai-1.onrender.com/docs
+- **Live Application:** [VoyageMind AI](https://voyage-mind-ai-cd8x.vercel.app)
+- **Backend API:** [VoyageMind AI API](https://voyagemind-ai-1.onrender.com)
+- **API Documentation:** [Interactive API Docs](https://voyagemind-ai-1.onrender.com/docs)
 
-*Note: The API documentation URL is valid only if Swagger UI is enabled in the deployed FastAPI application. Database hosting details should reflect your actual configuration.*
+---
 
 ## Future Improvements
 
-- Enhance itinerary personalization using richer user preference and trip-history signals.
-- Improve recommendation quality through systematic evaluation and user feedback.
-- Expand integrations with additional travel, accommodation, and activity data providers.
-- Add more robust API error handling, request validation, and observability.
-- Improve itinerary refinement so users can adjust plans based on changing budgets, interests, and schedules.
+- Enhance itinerary personalization using user preferences and trip history.
+- Improve recommendation quality through evaluation and user feedback.
+- Expand integrations with additional travel and activity data providers.
+- Strengthen API error handling, validation, and monitoring.
+- Enable users to refine itineraries based on changing budgets and interests.
+
+---
 
 ## Author
 
